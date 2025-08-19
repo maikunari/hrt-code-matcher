@@ -603,6 +603,14 @@ class WooCommerceHTSMatcher:
         """Fetch only products that don't have HTS codes yet"""
         return self.fetch_all_products(limit=limit, skip_processed=True)
     
+    def clear_all_matches(self):
+        """Clear all HTS matches from the database"""
+        cursor = self.hts_db.cursor()
+        cursor.execute("DELETE FROM product_matches")
+        cursor.execute("DELETE FROM processing_log")
+        self.hts_db.commit()
+        logger.info("Cleared all HTS matches from database")
+    
     def extract_product_features(self, product: Dict) -> Dict:
         """Extract and clean product information for Claude"""
         
@@ -983,27 +991,52 @@ def main():
         print("🔧 Local development mode - SSL verification disabled")
     
     while True:
-        print("\n=== Main Menu ===")
+        print("\n" + "="*60)
+        print("HTS CODE MATCHER - MAIN MENU")
+        print("="*60)
+        
+        # Display current status
+        summary = matcher.get_match_summary()
+        print(f"\n📊 Current Status:")
+        print(f"   • {summary['total']} products classified")
+        print(f"   • {summary['approved']} auto-approved")
+        print(f"   • {summary['pending'] + summary['needs_manual']} need review")
         
         if category_manager.selected_category_ids:
             cat_count = len(category_manager.selected_category_ids)
             product_count = sum(c.get('count', 0) for c in category_manager.categories if c['id'] in category_manager.selected_category_ids)
-            print(f"📁 Category Filter: {cat_count} categories selected (~{product_count} products)")
+            print(f"\n📁 Category Filter: {cat_count} categories selected (~{product_count} products)")
         else:
-            print("📁 Category Filter: All categories")
+            print(f"\n📁 Category Filter: All categories")
         
-        print("\n1. Select categories to process")
-        print("2. Test with first 10 products (skip already processed)")
-        print("3. Process first 100 products (skip already processed)")
-        print("4. Process ALL unprocessed products")
-        print("5. View summary and statistics")
-        print("6. Review pending matches")
-        print("7. Export results to CSV")
-        print("8. Push approved matches to WooCommerce (dry run)")
-        print("9. Push approved matches to WooCommerce (LIVE)")
+        print("\n" + "-"*60)
+        print("HOW IT WORKS:")
+        print("• Options 2-4: Process NEW products only (won't re-classify existing)")
+        print("• Options 12-13: REPROCESS products (will override existing codes)")
+        print("• Option 8-9: Push approved codes to your WooCommerce store")
+        print("-"*60)
+        
+        print("\n=== Processing Options (Skip Already Classified) ===")
+        print("1.  Select categories to process")
+        print("2.  Test with first 10 unprocessed products")
+        print("3.  Process first 100 unprocessed products")
+        print("4.  Process ALL unprocessed products")
+        print("11. Process specific categories (unprocessed only)")
+        
+        print("\n=== Management Options ===")
+        print("5.  View summary and statistics")
+        print("6.  Review pending matches")
+        print("7.  Export results to CSV")
+        print("8.  Push to WooCommerce (DRY RUN - preview only)")
+        print("9.  Push to WooCommerce (LIVE - updates store)")
         print("10. Estimate processing costs")
-        print("11. Process specific categories (skip already processed)")
-        print("0. Exit")
+        
+        print("\n=== Reprocessing Options (Override Existing) ===")
+        print("12. REPROCESS first 10 products")
+        print("13. REPROCESS ALL products (expensive!)")
+        print("14. Clear database (remove all matches)")
+        
+        print("\n0.  Exit")
         
         choice = input("\nSelect option: ").strip()
         
@@ -1151,6 +1184,47 @@ def main():
                     print(f"\n✓ Complete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
             else:
                 print("No unprocessed products found in selected categories!")
+        
+        elif choice == '12':
+            print("\n⚠️  REPROCESSING MODE - This will override existing HTS codes!")
+            confirm = input("Are you sure you want to reprocess? (y/n): ")
+            if confirm.lower() == 'y':
+                # Force fetch without skipping
+                products = matcher.fetch_all_products(limit=10, skip_processed=False)
+                if products:
+                    print(f"Found {len(products)} products. Starting reprocessing...")
+                    results = matcher.process_products(products)
+                    summary = matcher.get_match_summary()
+                    print(f"\n✓ Complete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
+        
+        elif choice == '13':
+            print("\n⚠️  WARNING: This will REPROCESS ALL products and override existing HTS codes!")
+            print("This operation will take significant time and API credits.")
+            confirm = input("Type 'REPROCESS ALL' to confirm: ")
+            if confirm == 'REPROCESS ALL':
+                products = matcher.fetch_all_products(skip_processed=False)
+                if products:
+                    cost_est = matcher.get_processing_cost_estimate(len(products))
+                    print(f"\nFound {len(products)} total products")
+                    print(f"Estimated cost: ${cost_est['estimated_cost_usd']}")
+                    print(f"Estimated time: {cost_est['estimated_time_minutes']} minutes")
+                    final_confirm = input("Continue with reprocessing? (type 'YES' to confirm): ")
+                    if final_confirm == 'YES':
+                        results = matcher.process_products(products)
+                        summary = matcher.get_match_summary()
+                        print(f"\n✓ Complete! All products reprocessed.")
+            else:
+                print("Cancelled.")
+        
+        elif choice == '14':
+            print("\n⚠️  WARNING: This will DELETE all HTS code matches from the database!")
+            print("You will need to reprocess all products to get HTS codes again.")
+            confirm = input("Type 'DELETE ALL' to confirm: ")
+            if confirm == 'DELETE ALL':
+                matcher.clear_all_matches()
+                print("✓ Database cleared. All HTS matches have been removed.")
+            else:
+                print("Cancelled.")
         
         elif choice == '0':
             print("\nGoodbye!")
