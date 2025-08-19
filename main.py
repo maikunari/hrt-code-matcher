@@ -379,7 +379,7 @@ class HTSMatcher:
     
     def __init__(self, api_key: str):
         self.client = Anthropic(api_key=api_key)
-        self.model = "claude-3-5-sonnet-20241022"  # Using Sonnet as specified
+        self.model = "claude-3-7-sonnet-20250219"  # Using Claude 3.7 Sonnet
         
     def match_product(self, product_info: Dict) -> Dict:
         """Use Claude to match a product to its HTS code"""
