@@ -522,11 +522,22 @@ class WooCommerceHTSMatcher:
         
         self.hts_db.commit()
     
-    def fetch_all_products(self, limit: Optional[int] = None) -> List[Dict]:
-        """Fetch all products from WooCommerce"""
+    def fetch_all_products(self, limit: Optional[int] = None, skip_processed: bool = False) -> List[Dict]:
+        """Fetch all products from WooCommerce
+        
+        Args:
+            limit: Maximum number of products to fetch
+            skip_processed: If True, skip products that already have approved HTS codes
+        """
         products = []
         page = 1
         per_page = 100
+        
+        # Get already processed product IDs if skip_processed is True
+        processed_ids = set()
+        if skip_processed:
+            processed_ids = self.get_processed_product_ids()
+            logger.info(f"Found {len(processed_ids)} already processed products to skip")
         
         while True:
             logger.info(f"Fetching products page {page}...")
@@ -550,6 +561,11 @@ class WooCommerceHTSMatcher:
             
             if not batch:
                 break
+            
+            # Filter out already processed products if requested
+            if skip_processed:
+                batch = [p for p in batch if p['id'] not in processed_ids]
+                logger.info(f"  Page {page}: {len(batch)} unprocessed products")
                 
             products.extend(batch)
             
@@ -565,8 +581,27 @@ class WooCommerceHTSMatcher:
             page += 1
             time.sleep(0.5)  # Be nice to the API
         
-        logger.info(f"Fetched {len(products)} total products")
+        if skip_processed:
+            logger.info(f"Fetched {len(products)} unprocessed products")
+        else:
+            logger.info(f"Fetched {len(products)} total products")
         return products
+    
+    def get_processed_product_ids(self) -> Set[int]:
+        """Get IDs of products that have already been processed and approved"""
+        cursor = self.hts_db.cursor()
+        cursor.execute("""
+            SELECT product_id 
+            FROM product_matches 
+            WHERE status IN ('approved', 'pending', 'manual')
+            AND hts_code IS NOT NULL 
+            AND hts_code != '9999.99.9999'
+        """)
+        return {row[0] for row in cursor.fetchall()}
+    
+    def get_products_without_hts(self, limit: Optional[int] = None) -> List[Dict]:
+        """Fetch only products that don't have HTS codes yet"""
+        return self.fetch_all_products(limit=limit, skip_processed=True)
     
     def extract_product_features(self, product: Dict) -> Dict:
         """Extract and clean product information for Claude"""
@@ -958,15 +993,16 @@ def main():
             print("📁 Category Filter: All categories")
         
         print("\n1. Select categories to process")
-        print("2. Test with first 10 products (filtered)")
-        print("3. Process first 100 products (filtered)")
-        print("4. Process ALL products in selected categories")
+        print("2. Test with first 10 products (skip already processed)")
+        print("3. Process first 100 products (skip already processed)")
+        print("4. Process ALL unprocessed products")
         print("5. View summary and statistics")
         print("6. Review pending matches")
         print("7. Export results to CSV")
         print("8. Push approved matches to WooCommerce (dry run)")
         print("9. Push approved matches to WooCommerce (LIVE)")
         print("10. Estimate processing costs")
+        print("11. Process specific categories (skip already processed)")
         print("0. Exit")
         
         choice = input("\nSelect option: ").strip()
@@ -979,52 +1015,37 @@ def main():
                     category_manager.save_category_selection()
         
         elif choice == '2':
-            print("\nFetching first 10 products...")
-            if category_manager.selected_category_ids:
-                products = category_manager.fetch_products_by_categories(
-                    category_manager.selected_category_ids, 
-                    limit=10
-                )
-            else:
-                products = matcher.fetch_all_products(limit=10)
+            print("\nFetching first 10 unprocessed products...")
+            products = matcher.get_products_without_hts(limit=10)
             
             if products:
-                print(f"Found {len(products)} products. Starting analysis...")
+                print(f"Found {len(products)} unprocessed products. Starting analysis...")
                 results = matcher.process_products(products)
                 summary = matcher.get_match_summary()
                 print(f"\n✓ Complete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
+            else:
+                print("No unprocessed products found! All products have HTS codes.")
             
         elif choice == '3':
-            print("\nFetching first 100 products...")
-            if category_manager.selected_category_ids:
-                products = category_manager.fetch_products_by_categories(
-                    category_manager.selected_category_ids, 
-                    limit=100
-                )
-            else:
-                products = matcher.fetch_all_products(limit=100)
+            print("\nFetching first 100 unprocessed products...")
+            products = matcher.get_products_without_hts(limit=100)
             
             if products:
-                confirm = input(f"Process {len(products)} products? (y/n): ")
+                confirm = input(f"Process {len(products)} unprocessed products? (y/n): ")
                 if confirm.lower() == 'y':
                     results = matcher.process_products(products)
                     summary = matcher.get_match_summary()
                     print(f"\n✓ Complete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
+            else:
+                print("No unprocessed products found! All products have HTS codes.")
             
         elif choice == '4':
-            if not category_manager.selected_category_ids:
-                print("\n⚠️  No categories selected!")
-                print("Use option 1 to select categories first, or option 3 to process all products.")
-                continue
-            
-            print("\n⚠️  WARNING: This will process ALL products in selected categories!")
-            products = category_manager.fetch_products_by_categories(
-                category_manager.selected_category_ids
-            )
+            print("\n⚠️  WARNING: This will process ALL unprocessed products!")
+            products = matcher.get_products_without_hts()
             
             if products:
                 cost_est = matcher.get_processing_cost_estimate(len(products))
-                print(f"\nFound {len(products)} products in selected categories")
+                print(f"\nFound {len(products)} unprocessed products")
                 print(f"Estimated cost: ${cost_est['estimated_cost_usd']}")
                 print(f"Estimated time: {cost_est['estimated_time_minutes']} minutes")
                 confirm = input("Continue? (type 'YES' to confirm): ")
@@ -1032,6 +1053,8 @@ def main():
                     results = matcher.process_products(products)
                     summary = matcher.get_match_summary()
                     print(f"\n✓ Complete! Check summary for results.")
+            else:
+                print("No unprocessed products found! All products have HTS codes.")
             
         elif choice == '5':
             summary = matcher.get_match_summary()
@@ -1099,6 +1122,36 @@ def main():
             print(f"Output tokens: {cost_est['output_tokens']:,}")
             print("\nNote: Actual costs may vary based on product description length")
             
+        elif choice == '11':
+            if not category_manager.selected_category_ids:
+                print("\n⚠️  No categories selected!")
+                print("Use option 1 to select categories first.")
+                continue
+            
+            print("\nFetching products from selected categories (skipping already processed)...")
+            
+            # Get products from selected categories
+            all_category_products = category_manager.fetch_products_by_categories(
+                category_manager.selected_category_ids
+            )
+            
+            # Filter out already processed
+            processed_ids = matcher.get_processed_product_ids()
+            products = [p for p in all_category_products if p['id'] not in processed_ids]
+            
+            if products:
+                print(f"Found {len(products)} unprocessed products in selected categories")
+                cost_est = matcher.get_processing_cost_estimate(len(products))
+                print(f"Estimated cost: ${cost_est['estimated_cost_usd']}")
+                print(f"Estimated time: {cost_est['estimated_time_minutes']} minutes")
+                confirm = input("Process these products? (y/n): ")
+                if confirm.lower() == 'y':
+                    results = matcher.process_products(products)
+                    summary = matcher.get_match_summary()
+                    print(f"\n✓ Complete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
+            else:
+                print("No unprocessed products found in selected categories!")
+        
         elif choice == '0':
             print("\nGoodbye!")
             break
