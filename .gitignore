@@ -45,6 +45,10 @@ pyvenv.cfg
 .DS_Store
 Thumbs.db
 
+# Third-party plugins (don't commit)
+woocommerce-shipstation-integration/
+woocommerce-shipstation-integration/**
+
 # API keys and secrets
 *_key.txt
 *_secret.txt
