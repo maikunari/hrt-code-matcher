@@ -1,0 +1,54 @@
+# Configuration files with secrets
+config.py
+.env
+*.env
+.env.*
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+hts_codes.db
+
+# Export files
+exports/
+*.csv
+hts_matches_*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Virtual environments
+bin/
+include/
+lib/
+lib64/
+share/
+pyvenv.cfg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# API keys and secrets
+*_key.txt
+*_secret.txt
+credentials.json
+secrets.json
+*.key
+*.pem
