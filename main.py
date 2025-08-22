@@ -522,16 +522,18 @@ class WooCommerceHTSMatcher:
         
         self.hts_db.commit()
     
-    def fetch_all_products(self, limit: Optional[int] = None, skip_processed: bool = False) -> List[Dict]:
+    def fetch_all_products(self, limit: Optional[int] = None, skip_processed: bool = False, max_pages: int = None) -> List[Dict]:
         """Fetch all products from WooCommerce
         
         Args:
             limit: Maximum number of products to fetch
             skip_processed: If True, skip products that already have approved HTS codes
+            max_pages: Maximum number of pages to scan (useful for checking only recent products)
         """
         products = []
         page = 1
         per_page = 100
+        consecutive_empty_pages = 0
         
         # Get already processed product IDs if skip_processed is True
         processed_ids = set()
@@ -549,7 +551,9 @@ class WooCommerceHTSMatcher:
                 params={
                     'page': page,
                     'per_page': per_page,
-                    'status': 'publish'
+                    'status': 'publish',
+                    'orderby': 'date',  # Order by date to get newest first
+                    'order': 'desc'     # Descending order (newest first)
                 }
             )
             
@@ -563,14 +567,36 @@ class WooCommerceHTSMatcher:
                 break
             
             # Filter out already processed products if requested
+            unprocessed_in_batch = 0
             if skip_processed:
+                original_batch_size = len(batch)
                 batch = [p for p in batch if p['id'] not in processed_ids]
-                logger.info(f"  Page {page}: {len(batch)} unprocessed products")
+                unprocessed_in_batch = len(batch)
+                logger.info(f"  Page {page}: {unprocessed_in_batch} unprocessed out of {original_batch_size} products")
                 
+                # If we found very few unprocessed products, increment counter
+                if unprocessed_in_batch <= 2:  # Less than 3 new products on this page
+                    consecutive_empty_pages += 1
+                    logger.info(f"  Few unprocessed products found. Empty page count: {consecutive_empty_pages}")
+                else:
+                    consecutive_empty_pages = 0  # Reset counter if we found products
+                
+                # Stop if we've had 2 consecutive pages with very few unprocessed products
+                if consecutive_empty_pages >= 2:
+                    logger.info("  Stopping scan - no more unprocessed products in recent pages")
+                    break
+                    
             products.extend(batch)
             
+            # Check if we've reached the desired limit
             if limit and len(products) >= limit:
                 products = products[:limit]
+                logger.info(f"  Reached limit of {limit} products")
+                break
+            
+            # Check if we've scanned enough pages (for quick scans)
+            if max_pages and page >= max_pages:
+                logger.info(f"  Reached maximum page limit ({max_pages} pages)")
                 break
                 
             # Check if there are more pages
@@ -773,44 +799,59 @@ class WooCommerceHTSMatcher:
     
     def get_match_summary(self) -> Dict:
         """Get summary of matching results"""
-        cursor = self.hts_db.cursor()
-        
-        cursor.execute('''
-            SELECT 
-                COUNT(*) as total,
-                COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved,
-                COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
-                COUNT(CASE WHEN status = 'manual' THEN 1 END) as needs_manual,
-                COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected,
-                AVG(CASE WHEN confidence > 0 THEN confidence END) as avg_confidence,
-                COUNT(DISTINCT hts_code) as unique_codes
-            FROM product_matches
-        ''')
-        
-        result = cursor.fetchone()
-        
-        # Get processing stats
-        cursor.execute('''
-            SELECT 
-                SUM(api_calls) as total_api_calls,
-                AVG(processing_time) as avg_processing_time
-            FROM processing_log
-            WHERE timestamp > datetime('now', '-24 hours')
-        ''')
-        
-        stats = cursor.fetchone()
-        
-        return {
-            'total': result[0] or 0,
-            'approved': result[1] or 0,
-            'pending': result[2] or 0,
-            'needs_manual': result[3] or 0,
-            'rejected': result[4] or 0,
-            'avg_confidence': result[5] or 0,
-            'unique_codes': result[6] or 0,
-            'api_calls_24h': stats[0] or 0,
-            'avg_processing_time': stats[1] or 0
-        }
+        try:
+            cursor = self.hts_db.cursor()
+            
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) as total,
+                    COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved,
+                    COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
+                    COUNT(CASE WHEN status = 'manual' THEN 1 END) as needs_manual,
+                    COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected,
+                    AVG(CASE WHEN confidence > 0 THEN confidence END) as avg_confidence,
+                    COUNT(DISTINCT hts_code) as unique_codes
+                FROM product_matches
+            ''')
+            
+            result = cursor.fetchone()
+            
+            # Get processing stats
+            cursor.execute('''
+                SELECT 
+                    SUM(api_calls) as total_api_calls,
+                    AVG(processing_time) as avg_processing_time
+                FROM processing_log
+                WHERE timestamp > datetime('now', '-24 hours')
+            ''')
+            
+            stats = cursor.fetchone()
+            
+            return {
+                'total': result[0] if result and result[0] else 0,
+                'approved': result[1] if result and result[1] else 0,
+                'pending': result[2] if result and result[2] else 0,
+                'needs_manual': result[3] if result and result[3] else 0,
+                'rejected': result[4] if result and result[4] else 0,
+                'avg_confidence': result[5] if result and result[5] else 0,
+                'unique_codes': result[6] if result and result[6] else 0,
+                'api_calls_24h': stats[0] if stats and stats[0] else 0,
+                'avg_processing_time': stats[1] if stats and stats[1] else 0
+            }
+        except Exception as e:
+            logger.error(f"Error getting match summary: {e}")
+            # Return safe defaults
+            return {
+                'total': 0,
+                'approved': 0,
+                'pending': 0,
+                'needs_manual': 0,
+                'rejected': 0,
+                'avg_confidence': 0,
+                'unique_codes': 0,
+                'api_calls_24h': 0,
+                'avg_processing_time': 0
+            }
     
     def update_product_hts(self, product_id: int, hts_code: str, confidence: float = None):
         """Update HTS code in WooCommerce"""
@@ -996,24 +1037,28 @@ def main():
         print("="*60)
         
         # Display current status
-        summary = matcher.get_match_summary()
-        print(f"\n📊 Current Status:")
-        print(f"   • {summary['total']} products classified")
-        print(f"   • {summary['approved']} auto-approved")
-        print(f"   • {summary['pending'] + summary['needs_manual']} need review")
+        try:
+            summary = matcher.get_match_summary()
+            print(f"\nCurrent Status:")
+            print(f"   - {summary['total']} products classified")
+            print(f"   - {summary['approved']} auto-approved")
+            print(f"   - {summary['pending'] + summary['needs_manual']} need review")
+        except Exception as e:
+            print(f"\nCurrent Status: Database initializing...")
+            logger.debug(f"Status error: {e}")
         
         if category_manager.selected_category_ids:
             cat_count = len(category_manager.selected_category_ids)
             product_count = sum(c.get('count', 0) for c in category_manager.categories if c['id'] in category_manager.selected_category_ids)
-            print(f"\n📁 Category Filter: {cat_count} categories selected (~{product_count} products)")
+            print(f"\nCategory Filter: {cat_count} categories selected (~{product_count} products)")
         else:
-            print(f"\n📁 Category Filter: All categories")
+            print(f"\nCategory Filter: All categories")
         
         print("\n" + "-"*60)
         print("HOW IT WORKS:")
-        print("• Options 2-4: Process NEW products only (won't re-classify existing)")
-        print("• Options 12-13: REPROCESS products (will override existing codes)")
-        print("• Option 8-9: Push approved codes to your WooCommerce store")
+        print("- Options 2-4: Process NEW products only (won't re-classify existing)")
+        print("- Options 12-13: REPROCESS products (will override existing codes)")
+        print("- Option 8-9: Push approved codes to your WooCommerce store")
         print("-"*60)
         
         print("\n=== Processing Options (Skip Already Classified) ===")
@@ -1024,12 +1069,12 @@ def main():
         print("11. Process specific categories (unprocessed only)")
         
         print("\n=== Management Options ===")
-        print("5.  View summary and statistics")
-        print("6.  Review pending matches")
+        print("5.  [DISABLED] View summary and statistics")
+        print("6.  [DISABLED] Review pending matches")
         print("7.  Export results to CSV")
-        print("8.  Push to WooCommerce (DRY RUN - preview only)")
+        print("8.  [DISABLED] Push to WooCommerce (DRY RUN)")
         print("9.  Push to WooCommerce (LIVE - updates store)")
-        print("10. Estimate processing costs")
+        print("10. [DISABLED] Estimate processing costs")
         
         print("\n=== Reprocessing Options (Override Existing) ===")
         print("12. REPROCESS first 10 products")
@@ -1038,6 +1083,7 @@ def main():
         
         print("\n0.  Exit")
         
+        # Get user input
         choice = input("\nSelect option: ").strip()
         
         if choice == '1':
@@ -1055,7 +1101,7 @@ def main():
                 print(f"Found {len(products)} unprocessed products. Starting analysis...")
                 results = matcher.process_products(products)
                 summary = matcher.get_match_summary()
-                print(f"\n✓ Complete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
+                print(f"\nComplete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
             else:
                 print("No unprocessed products found! All products have HTS codes.")
             
@@ -1068,7 +1114,7 @@ def main():
                 if confirm.lower() == 'y':
                     results = matcher.process_products(products)
                     summary = matcher.get_match_summary()
-                    print(f"\n✓ Complete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
+                    print(f"\nComplete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
             else:
                 print("No unprocessed products found! All products have HTS codes.")
             
@@ -1090,42 +1136,76 @@ def main():
                 print("No unprocessed products found! All products have HTS codes.")
             
         elif choice == '5':
-            summary = matcher.get_match_summary()
-            print(f"\n=== Classification Summary ===")
-            print(f"Total products processed: {summary['total']}")
-            print(f"Auto-approved (>{AUTO_APPROVE_THRESHOLD:.0%} confidence): {summary['approved']}")
-            print(f"Pending review (60-{AUTO_APPROVE_THRESHOLD:.0%} confidence): {summary['pending']}")
-            print(f"Needs manual review (<60% confidence): {summary['needs_manual']}")
-            print(f"Rejected: {summary['rejected']}")
-            print(f"Average confidence: {summary['avg_confidence']:.1%}")
-            print(f"Unique HTS codes used: {summary['unique_codes']}")
-            print(f"API calls (last 24h): {summary['api_calls_24h']}")
-            if summary['avg_processing_time'] > 0:
-                print(f"Avg processing time: {summary['avg_processing_time']:.1f} seconds/product")
+            print("\nThis option is temporarily disabled due to a terminal compatibility issue.")
+            print("Use option 7 to export results to CSV instead.")
+            continue
+        elif choice == '5_disabled':
+            try:
+                summary = matcher.get_match_summary()
+                print(f"\n=== Classification Summary ===")
+                if summary['total'] == 0:
+                    print("No products have been processed yet.")
+                    print("Use options 2-4 to process products first.")
+                else:
+                    print(f"Total products processed: {summary['total']}")
+                    print(f"Auto-approved (>{AUTO_APPROVE_THRESHOLD:.0%} confidence): {summary['approved']}")
+                    print(f"Pending review (60-{AUTO_APPROVE_THRESHOLD:.0%} confidence): {summary['pending']}")
+                    print(f"Needs manual review (<60% confidence): {summary['needs_manual']}")
+                    print(f"Rejected: {summary['rejected']}")
+                    if summary['avg_confidence']:
+                        print(f"Average confidence: {summary['avg_confidence']:.1%}")
+                    print(f"Unique HTS codes used: {summary['unique_codes']}")
+                    print(f"API calls (last 24h): {summary.get('api_calls_24h', 0)}")
+                    if summary.get('avg_processing_time', 0) > 0:
+                        print(f"Avg processing time: {summary['avg_processing_time']:.1f} seconds/product")
+            except Exception as e:
+                print(f"\nError: Unable to access database")
+                print(f"Details: {str(e)[:100]}")
+                print("Try processing some products first with option 2.")
             
         elif choice == '6':
-            pending = matcher.get_pending_matches()
-            if not pending.empty:
-                print(f"\n{len(pending)} products need review:")
-                print("\nShowing first 20:")
-                for idx, row in pending.head(20).iterrows():
-                    print(f"\n{idx+1}. {row['name'][:50]}...")
-                    print(f"   SKU: {row['sku']}")
-                    print(f"   Suggested: {row['hts_code']} ({row['confidence']:.0%} confidence)")
-                    print(f"   Reasoning: {row['reasoning'][:100]}...")
-                    if row['alternative_codes'] and row['alternative_codes'] != '[]':
-                        print(f"   Alternatives: {row['alternative_codes']}")
-            else:
-                print("\nNo pending matches to review!")
+            print("\nThis option is temporarily disabled due to a terminal compatibility issue.")
+            print("Use option 7 to export results to CSV to review pending matches.")
+            continue
+        elif choice == '6_disabled':
+            try:
+                pending = matcher.get_pending_matches()
+                if not pending.empty:
+                    print(f"\n{len(pending)} products need review:")
+                    print("\nShowing first 20:")
+                    for idx, row in pending.head(20).iterrows():
+                        print(f"\n{idx+1}. {row['name'][:50]}...")
+                        print(f"   SKU: {row['sku']}")
+                        print(f"   Suggested: {row['hts_code']} ({row['confidence']:.0%} confidence)")
+                        print(f"   Reasoning: {row['reasoning'][:100]}...")
+                        if row['alternative_codes'] and row['alternative_codes'] != '[]':
+                            print(f"   Alternatives: {row['alternative_codes']}")
+                else:
+                    print("\nNo pending matches to review!")
+            except Exception as e:
+                print(f"\nError getting pending matches: {e}")
+                print("Database may be empty. Process some products first.")
             
         elif choice == '7':
-            filename = matcher.export_results()
-            print(f"✓ Exported to {filename}")
-            print("You can open this in Excel to review and make changes")
+            try:
+                filename = matcher.export_results()
+                print(f"Exported to {filename}")
+                print("You can open this in Excel to review and make changes")
+            except Exception as e:
+                print(f"\nError exporting results: {e}")
+                print("Make sure you have processed some products first.")
             
         elif choice == '8':
-            print("\nDRY RUN - Checking what would be updated...")
-            matcher.bulk_update_approved(dry_run=True)
+            print("\nThis option is temporarily disabled due to a terminal compatibility issue.")
+            print("Use option 9 for LIVE push instead (be careful - it will update your store).")
+            continue
+        elif choice == '8_disabled':
+            try:
+                print("\nDRY RUN - Checking what would be updated...")
+                matcher.bulk_update_approved(dry_run=True)
+            except Exception as e:
+                print(f"\nError during dry run: {e}")
+                print("Make sure you have processed some products first.")
             
         elif choice == '9':
             print("\n⚠️  LIVE UPDATE WARNING")
@@ -1136,6 +1216,9 @@ def main():
                 print(f"✓ Updated {count} products")
             
         elif choice == '10':
+            print("\nThis option is temporarily disabled due to a terminal compatibility issue.")
+            continue
+        elif choice == '10_disabled':
             if category_manager.selected_category_ids:
                 product_count = sum(c.get('count', 0) for c in category_manager.categories if c['id'] in category_manager.selected_category_ids)
                 print(f"\nEstimating for {product_count} products in selected categories...")
@@ -1181,7 +1264,7 @@ def main():
                 if confirm.lower() == 'y':
                     results = matcher.process_products(products)
                     summary = matcher.get_match_summary()
-                    print(f"\n✓ Complete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
+                    print(f"\nComplete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
             else:
                 print("No unprocessed products found in selected categories!")
         
@@ -1195,7 +1278,7 @@ def main():
                     print(f"Found {len(products)} products. Starting reprocessing...")
                     results = matcher.process_products(products)
                     summary = matcher.get_match_summary()
-                    print(f"\n✓ Complete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
+                    print(f"\nComplete! Approved: {summary['approved']}, Needs review: {summary['pending'] + summary['needs_manual']}")
         
         elif choice == '13':
             print("\n⚠️  WARNING: This will REPROCESS ALL products and override existing HTS codes!")

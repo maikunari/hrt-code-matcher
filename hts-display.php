@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: HTS Code Display for WooCommerce
- * Plugin URI: https://yoursite.com
+ * Plugin URI: https://friendlyfires.ca 
  * Description: Securely displays and manages HTS codes in WooCommerce with ShipStation integration support
  * Version: 2.0.0
- * Author: Your Name
- * Author URI: https://yoursite.com
+ * Author: Mike Sewell
+ * Author URI: https://friendlyfires.ca
  * License: GPL v2 or later
  * Text Domain: hts-display
  * WC requires at least: 3.0
@@ -142,18 +142,12 @@ function add_hts_product_data_fields() {
             
             <?php if ($hts_code && hts_validate_code_format($hts_code)): ?>
                 <p class="form-field">
-                    <label><?php esc_html_e('Quick References:', 'hts-display'); ?></label>
+                    <label><?php esc_html_e('Quick Reference:', 'hts-display'); ?></label>
                     <a href="<?php echo esc_url('https://hts.usitc.gov/?query=' . urlencode($hts_code)); ?>" 
                        target="_blank" 
                        rel="noopener noreferrer" 
                        class="button button-small">
                         <?php esc_html_e('Look up HTS Code ↗', 'hts-display'); ?>
-                    </a>
-                    <a href="<?php echo esc_url('https://www.dutycalculator.com/hs-code-duty-calculator/'); ?>" 
-                       target="_blank" 
-                       rel="noopener noreferrer" 
-                       class="button button-small">
-                        <?php esc_html_e('Calculate Duties ↗', 'hts-display'); ?>
                     </a>
                 </p>
             <?php endif; ?>
