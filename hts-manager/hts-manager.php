@@ -1305,8 +1305,8 @@ function hts_dashboard_widget_display() {
             <?php endif; ?>
             
             <?php if ($low_confidence > 0): ?>
-            <a href="<?php echo admin_url('edit.php?post_type=product&hts_filter=low_confidence'); ?>" class="button">
-                Review Low Confidence
+            <a href="<?php echo admin_url('admin.php?page=hts-manager'); ?>" class="button">
+                Review Products
             </a>
             <?php endif; ?>
             
@@ -1406,68 +1406,3 @@ function hts_product_save_notices() {
     }
 }
 
-// Add filter to products list for low confidence items
-add_action('restrict_manage_posts', 'hts_add_confidence_filter');
-function hts_add_confidence_filter() {
-    global $typenow;
-    
-    if ($typenow == 'product') {
-        $selected = isset($_GET['hts_filter']) ? $_GET['hts_filter'] : '';
-        ?>
-        <select name="hts_filter" id="hts_filter">
-            <option value="">All HTS Status</option>
-            <option value="no_code" <?php selected($selected, 'no_code'); ?>>Missing HTS Code</option>
-            <option value="low_confidence" <?php selected($selected, 'low_confidence'); ?>>Low Confidence</option>
-            <option value="has_code" <?php selected($selected, 'has_code'); ?>>Has HTS Code</option>
-        </select>
-        <?php
-    }
-}
-
-add_filter('request', 'hts_filter_products_by_confidence');
-function hts_filter_products_by_confidence($query_vars) {
-    global $pagenow, $typenow;
-    
-    if ($pagenow == 'edit.php' && $typenow == 'product' && isset($_GET['hts_filter']) && $_GET['hts_filter'] != '') {
-        
-        switch ($_GET['hts_filter']) {
-            case 'no_code':
-                $query_vars['meta_query'] = array(
-                    'relation' => 'OR',
-                    array(
-                        'key' => '_hts_code',
-                        'compare' => 'NOT EXISTS'
-                    ),
-                    array(
-                        'key' => '_hts_code',
-                        'value' => '',
-                        'compare' => '='
-                    )
-                );
-                break;
-                
-            case 'low_confidence':
-                $query_vars['meta_query'] = array(
-                    array(
-                        'key' => '_hts_confidence',
-                        'value' => '0.60',
-                        'compare' => '<',
-                        'type' => 'DECIMAL(3,2)'
-                    )
-                );
-                break;
-                
-            case 'has_code':
-                $query_vars['meta_query'] = array(
-                    array(
-                        'key' => '_hts_code',
-                        'value' => '',
-                        'compare' => '!='
-                    )
-                );
-                break;
-        }
-    }
-    
-    return $query_vars;
-}
