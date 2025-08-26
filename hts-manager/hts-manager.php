@@ -541,39 +541,259 @@ function hts_notify_admin_low_confidence($product_id, $result) {
 }
 
 // ===============================================
-// PART 5: SHIPSTATION INTEGRATION (TEMPORARILY DISABLED)
+// PART 5: SHIPSTATION INTEGRATION (FIXED)
 // ===============================================
 
-// SHIPSTATION SYNC COMMENTED OUT TO PREVENT IMPORT ERRORS
-// TODO: Fix ShipStation integration and re-enable when working properly
+// Initialize ShipStation integration when both plugins are active
+add_action('plugins_loaded', 'hts_init_shipstation_integration');
+function hts_init_shipstation_integration() {
+    if (class_exists('WooCommerce') && class_exists('WC_Shipstation_Integration')) {
+        // Hook into ShipStation export - add customs data to orders
+        add_filter('woocommerce_shipstation_export_order_xml', 'hts_add_customs_to_shipstation_order_xml', 10, 3);
+        
+        // Use custom fields as fallback method
+        add_filter('woocommerce_shipstation_export_custom_field_2', 'hts_set_custom_field_2_key');
+        add_filter('woocommerce_shipstation_export_custom_field_2_value', 'hts_add_hts_to_custom_field_value', 10, 2);
+        add_filter('woocommerce_shipstation_export_custom_field_3', 'hts_set_custom_field_3_key');
+        add_filter('woocommerce_shipstation_export_custom_field_3_value', 'hts_add_country_to_custom_field_value', 10, 2);
+    }
+}
 
-/*
-add_filter('woocommerce_shipstation_export_custom_field_2', 'hts_add_to_shipstation', 10, 2);
-function hts_add_to_shipstation($value, $product) {
-    // Wrap in try-catch to prevent any errors from breaking ShipStation export
+// Set the custom field 2 to map to HTS codes
+function hts_set_custom_field_2_key($meta_key) {
+    return '_hts_codes_summary';
+}
+
+// Set the custom field 3 to map to country of origin
+function hts_set_custom_field_3_key($meta_key) {
+    return '_country_summary';
+}
+
+function hts_add_customs_to_shipstation_order_xml($order_xml, $order, $xml) {
     try {
-        if (!$product || !is_object($product)) {
-            return $value;
+        // Store HTS codes summary in order meta for custom field fallback
+        hts_store_customs_summary_in_order($order);
+        
+        // Add CustomsItems section using correct ShipStation XML structure
+        $customs_items_xml = $xml->createElement('CustomsItems');
+        $has_customs_items = false;
+        
+        foreach ($order->get_items() as $item_id => $item) {
+            try {
+                $product = is_callable(array($item, 'get_product')) ? $item->get_product() : false;
+                
+                if (!$product || !$product->needs_shipping()) {
+                    continue;
+                }
+                
+                $product_id = $product->get_id();
+                $hts_code = get_post_meta($product_id, '_hts_code', true);
+                
+                if (empty($hts_code) || $hts_code === '9999.99.9999') {
+                    continue;
+                }
+                
+                if (!preg_match('/^\d{4}\.\d{2}\.\d{4}$/', $hts_code)) {
+                    continue;
+                }
+                
+                $has_customs_items = true;
+                $customs_item_xml = $xml->createElement('CustomsItem');
+                
+                // Add required fields exactly as ShipStation expects
+                hts_safe_xml_append($xml, $customs_item_xml, 'Description', substr($product->get_name(), 0, 200), true);
+                hts_safe_xml_append($xml, $customs_item_xml, 'SKU', $product->get_sku(), false);
+                
+                $quantity = $item->get_quantity() - abs($order->get_qty_refunded_for_item($item_id));
+                hts_safe_xml_append($xml, $customs_item_xml, 'Quantity', max(0, $quantity), false);
+                
+                $item_value = $order->get_item_subtotal($item, false, false);
+                if (is_numeric($item_value)) {
+                    hts_safe_xml_append($xml, $customs_item_xml, 'ItemValue', number_format($item_value, 2, '.', ''), false);
+                }
+                
+                // Format HTS code according to ShipStation API docs
+                // API expects harmonized_tariff_code field with format like "3926.10" (keeping dots)
+                hts_safe_xml_append($xml, $customs_item_xml, 'harmonized_tariff_code', $hts_code, false);
+                
+                $country = get_post_meta($product_id, '_country_of_origin', true) ?: 'CA';
+                hts_safe_xml_append($xml, $customs_item_xml, 'CountryOfOrigin', strtoupper($country), false);
+                
+                $customs_items_xml->appendChild($customs_item_xml);
+                
+                hts_log_info('Added customs item: ' . $product->get_name() . ' (HTS: ' . $hts_code . ', Country: ' . strtoupper($country) . ')');
+                
+            } catch (Exception $e) {
+                hts_log_error('Error processing customs item: ' . $e->getMessage());
+                continue;
+            }
         }
         
-        $product_id = $product->get_id();
-        if (!$product_id) {
-            return $value;
+        if ($has_customs_items) {
+            $order_xml->appendChild($customs_items_xml);
+            hts_log_info('Added CustomsItems section to order ' . $order->get_id());
         }
         
-        $hts_code = get_post_meta($product_id, '_hts_code', true);
-        if ($hts_code && is_string($hts_code)) {
-            // ShipStation prefers HTS codes without dots for customs forms
-            return str_replace('.', '', $hts_code);
-        }
     } catch (Exception $e) {
-        // Log error but don't break the export
-        error_log('HTS Manager: Error in hts_add_to_shipstation - ' . $e->getMessage());
+        hts_log_error('Error in order customs processing: ' . $e->getMessage());
+    }
+    
+    return $order_xml;
+}
+
+/**
+ * Store customs summary in order meta for custom field fallback
+ */
+function hts_store_customs_summary_in_order($order) {
+    $hts_codes = array();
+    $countries = array();
+    
+    foreach ($order->get_items() as $item) {
+        try {
+            $product = $item->get_product();
+            if (!$product) continue;
+            
+            $hts_code = get_post_meta($product->get_id(), '_hts_code', true);
+            if ($hts_code && $hts_code !== '9999.99.9999' && preg_match('/^\d{4}\.\d{2}\.\d{4}$/', $hts_code)) {
+                $sku = $product->get_sku();
+                if ($sku) {
+                    $hts_codes[] = substr($sku, 0, 20) . ':' . $hts_code;
+                }
+            }
+            
+            $country = get_post_meta($product->get_id(), '_country_of_origin', true) ?: 'CA';
+            if (!in_array($country, $countries)) {
+                $countries[] = strtoupper($country);
+            }
+        } catch (Exception $e) {
+            continue;
+        }
+    }
+    
+    // Store summaries in order meta
+    if (!empty($hts_codes)) {
+        $order->update_meta_data('_hts_codes_summary', implode(', ', $hts_codes));
+    }
+    if (!empty($countries)) {
+        $order->update_meta_data('_country_summary', implode(', ', $countries));
+    }
+    $order->save_meta_data();
+}
+
+/**
+ * Custom field 2 value - return HTS codes summary from order meta
+ */
+function hts_add_hts_to_custom_field_value($value, $order_id) {
+    try {
+        $order = wc_get_order($order_id);
+        if (!$order) return $value;
+        
+        $hts_summary = $order->get_meta('_hts_codes_summary', true);
+        if (!empty($hts_summary)) {
+            hts_log_info('Returning HTS codes for custom field 2: ' . $hts_summary);
+            return $hts_summary;
+        }
+        
+    } catch (Exception $e) {
+        hts_log_error('Error in custom field 2 value: ' . $e->getMessage());
     }
     
     return $value;
 }
-*/
+
+/**
+ * Custom field 3 value - return country summary from order meta
+ */
+function hts_add_country_to_custom_field_value($value, $order_id) {
+    try {
+        $order = wc_get_order($order_id);
+        if (!$order) return $value;
+        
+        $country_summary = $order->get_meta('_country_summary', true);
+        if (!empty($country_summary)) {
+            hts_log_info('Returning countries for custom field 3: ' . $country_summary);
+            return $country_summary;
+        }
+        
+    } catch (Exception $e) {
+        hts_log_error('Error in custom field 3 value: ' . $e->getMessage());
+    }
+    
+    return $value;
+}
+
+/**
+ * Safe XML append helper - won't throw exceptions
+ */
+function hts_safe_xml_append($xml, $parent, $name, $value, $cdata = true) {
+    try {
+        if (!$xml || !$parent || !$name) {
+            return false;
+        }
+        
+        $value = (string) $value;
+        if (empty($value) && $value !== '0') {
+            return false;
+        }
+        
+        // Clean value of any invalid XML characters
+        $value = preg_replace('/[^\x{0009}\x{000a}\x{000d}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}]+/u', '', $value);
+        
+        $element = $xml->createElement($name);
+        if ($cdata && $value) {
+            $element->appendChild($xml->createCDATASection($value));
+        } elseif ($value) {
+            $element->appendChild($xml->createTextNode($value));
+        }
+        $parent->appendChild($element);
+        return true;
+        
+    } catch (Exception $e) {
+        hts_log_error('XML append failed for ' . $name . ': ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Enhanced logging functions for debugging ShipStation integration
+ */
+function hts_log_error($message, $context = array()) {
+    try {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            $log_message = '[HTS Manager ERROR] ' . $message;
+            if (!empty($context)) {
+                $log_message .= ' | Context: ' . json_encode($context);
+            }
+            error_log($log_message);
+        }
+        
+        if (function_exists('wc_get_logger')) {
+            $logger = wc_get_logger();
+            $logger->error($message, array('source' => 'hts-manager', 'context' => $context));
+        }
+    } catch (Exception $e) {
+        // Silently continue
+    }
+}
+
+function hts_log_info($message, $context = array()) {
+    try {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            $log_message = '[HTS Manager INFO] ' . $message;
+            if (!empty($context)) {
+                $log_message .= ' | Context: ' . json_encode($context);
+            }
+            error_log($log_message);
+        }
+        
+        if (function_exists('wc_get_logger')) {
+            $logger = wc_get_logger();
+            $logger->info($message, array('source' => 'hts-manager', 'context' => $context));
+        }
+    } catch (Exception $e) {
+        // Silently continue
+    }
+}
 
 // ===============================================
 // PART 6: ADMIN SETTINGS PAGE

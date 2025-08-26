@@ -98,10 +98,15 @@ function hts_safe_add_customs_to_item_xml($item_xml, $order_item, $order, $xml) 
             hts_safe_xml_append($xml, $item_xml, 'CustomsDescription', $customs_description);
         }
         
-        // Safely add HTS/Harmonization code
+        // Safely add HTS/Harmonization code - try multiple field names
         $formatted_hts = str_replace('.', '', $hts_code);
         if (preg_match('/^\d{10}$/', $formatted_hts)) { // Verify it's 10 digits
+            // Try multiple possible field names that ShipStation might accept
+            hts_safe_xml_append($xml, $item_xml, 'harmonized_tariff_code', $formatted_hts);
+            hts_safe_xml_append($xml, $item_xml, 'HarmonizedTariffCode', $formatted_hts);
+            hts_safe_xml_append($xml, $item_xml, 'HarmonizationCode', $formatted_hts);
             hts_safe_xml_append($xml, $item_xml, 'HarmonizedCode', $formatted_hts);
+            hts_safe_xml_append($xml, $item_xml, 'TariffCode', $formatted_hts);
         }
         
         // Safely get and add Country of Origin
@@ -207,7 +212,12 @@ function hts_safe_add_customs_to_shipstation_xml($order_xml, $order, $xml) {
                 }
                 
                 $formatted_hts = str_replace('.', '', $hts_code);
+                // Try multiple possible field names for harmonized tariff code
+                hts_safe_xml_append($xml, $customs_item_xml, 'harmonized_tariff_code', $formatted_hts);
+                hts_safe_xml_append($xml, $customs_item_xml, 'HarmonizedTariffCode', $formatted_hts);
+                hts_safe_xml_append($xml, $customs_item_xml, 'HarmonizationCode', $formatted_hts);
                 hts_safe_xml_append($xml, $customs_item_xml, 'HarmonizedCode', $formatted_hts);
+                hts_safe_xml_append($xml, $customs_item_xml, 'TariffCode', $formatted_hts);
                 
                 $country = get_post_meta($product_id, '_country_of_origin', true) ?: 'CA';
                 hts_safe_xml_append($xml, $customs_item_xml, 'CountryOfOrigin', strtoupper($country));
