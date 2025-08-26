@@ -541,67 +541,39 @@ function hts_notify_admin_low_confidence($product_id, $result) {
 }
 
 // ===============================================
-// PART 5: SHIPSTATION INTEGRATION
+// PART 5: SHIPSTATION INTEGRATION (TEMPORARILY DISABLED)
 // ===============================================
 
+// SHIPSTATION SYNC COMMENTED OUT TO PREVENT IMPORT ERRORS
+// TODO: Fix ShipStation integration and re-enable when working properly
+
+/*
 add_filter('woocommerce_shipstation_export_custom_field_2', 'hts_add_to_shipstation', 10, 2);
 function hts_add_to_shipstation($value, $product) {
-    $hts_code = get_post_meta($product->get_id(), '_hts_code', true);
-    if ($hts_code) {
-        // ShipStation prefers HTS codes without dots for customs forms
-        return str_replace('.', '', $hts_code);
-    }
-    return $value;
-}
-
-add_action('woocommerce_shipstation_export_order_xml', 'hts_add_customs_to_order_xml', 10, 2);
-function hts_add_customs_to_order_xml($order_xml, $order) {
-    // This runs after the order XML is generated
-    // ShipStation will use the HTS codes from custom_field_2
-}
-
-add_filter('woocommerce_shipstation_export_order_item_xml', 'hts_add_customs_to_item_xml', 10, 4);
-function hts_add_customs_to_item_xml($item_xml, $order_item, $order, $xml) {
+    // Wrap in try-catch to prevent any errors from breaking ShipStation export
     try {
-        // Set a maximum execution time for this function
-        $max_time = 0.5; // 500ms max per item
-        $start_time = microtime(true);
-        
-        $product_id = $order_item->get_product_id();
-        if (!$product_id) {
-            return $item_xml;
+        if (!$product || !is_object($product)) {
+            return $value;
         }
         
-        // Check execution time
-        if ((microtime(true) - $start_time) > $max_time) {
-            error_log('HTS Manager: Timeout prevented for item processing');
-            return $item_xml;
+        $product_id = $product->get_id();
+        if (!$product_id) {
+            return $value;
         }
         
         $hts_code = get_post_meta($product_id, '_hts_code', true);
-        $country_of_origin = get_post_meta($product_id, '_country_of_origin', true);
-        
-        if ($hts_code || $country_of_origin) {
-            // Add customs info to the item XML
-            $item_xml->addChild('CustomsDescription', substr($order_item->get_name(), 0, 200));
-            $item_xml->addChild('CustomsValue', $order_item->get_total());
-            
-            if ($hts_code) {
-                $item_xml->addChild('HarmonizedCode', str_replace('.', '', $hts_code));
-            }
-            
-            if ($country_of_origin) {
-                $item_xml->addChild('CountryOfOrigin', $country_of_origin);
-            }
+        if ($hts_code && is_string($hts_code)) {
+            // ShipStation prefers HTS codes without dots for customs forms
+            return str_replace('.', '', $hts_code);
         }
-        
-        return $item_xml;
-        
     } catch (Exception $e) {
-        error_log('HTS Manager ShipStation Integration Error: ' . $e->getMessage());
-        return $item_xml;
+        // Log error but don't break the export
+        error_log('HTS Manager: Error in hts_add_to_shipstation - ' . $e->getMessage());
     }
+    
+    return $value;
 }
+*/
 
 // ===============================================
 // PART 6: ADMIN SETTINGS PAGE
@@ -808,7 +780,6 @@ function hts_manager_settings_page() {
                 echo '<td><a href="' . get_edit_post_link($product_post->ID) . '">' . $product->get_name() . '</a></td>';
                 echo '<td>' . ($product->get_sku() ?: 'N/A') . '</td>';
                 echo '<td>';
-                echo '<a href="' . get_edit_post_link($product_post->ID) . '#hts_codes_product_data" class="button button-small">Edit HTS</a> ';
                 echo '<button class="button button-small hts-quick-classify" data-product-id="' . $product_post->ID . '">Quick Classify</button>';
                 echo '</td>';
                 echo '</tr>';
