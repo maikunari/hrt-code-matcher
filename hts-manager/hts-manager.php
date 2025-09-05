@@ -1190,7 +1190,7 @@ function hts_manager_settings_page()
                 jQuery(document).ready(function($) {
                     var syncInProgress = false;
                     var currentBatch = 0;
-                    var batchSize = 10;
+                    var batchSize = 5; // Smaller batches to prevent timeout
                     var totalProducts = <?php echo json_encode($products_with_codes); ?>;
                     var totalBatches = Math.ceil(totalProducts.length / batchSize);
                     var successCount = 0;
@@ -2107,15 +2107,18 @@ function hts_sync_to_dutify($product_id)
         return false;
     }
 
-    // Implement rate limiting using transients (max 30 syncs per minute for bulk operations)
+    // Implement rate limiting using transients - but allow more for bulk operations
     $rate_limit_key = 'hts_dutify_sync_count';
     $sync_count = get_transient($rate_limit_key);
+    
+    // Check if this is a bulk operation (called via AJAX)
+    $is_bulk = defined('DOING_AJAX') && DOING_AJAX;
+    $rate_limit = $is_bulk ? 500 : 30; // Much higher limit for bulk operations
 
     if ($sync_count === false) {
         set_transient($rate_limit_key, 1, 60); // Reset every minute
-    } elseif ($sync_count >= 30) {
-        // Higher limit for bulk operations
-        error_log('HTS Dutify Sync: Rate limit exceeded, skipping sync for product ' . $original_product_id);
+    } elseif ($sync_count >= $rate_limit) {
+        error_log('HTS Dutify Sync: Rate limit exceeded (' . $sync_count . '/' . $rate_limit . '), skipping sync for product ' . $original_product_id);
         return false;
     } else {
         set_transient($rate_limit_key, $sync_count + 1, 60);
@@ -2124,6 +2127,17 @@ function hts_sync_to_dutify($product_id)
     // Get HTS Manager data from the ORIGINAL product ID (could be variation)
     $hts_code = sanitize_text_field(get_post_meta($original_product_id, '_hts_code', true));
     $country_of_origin = sanitize_text_field(get_post_meta($original_product_id, '_country_of_origin', true));
+    
+    // Default to Canada if no country is set (same as UI default)
+    if (empty($country_of_origin)) {
+        $country_of_origin = 'CA';
+        // Also save it to the product meta for consistency
+        update_post_meta($original_product_id, '_country_of_origin', 'CA');
+        error_log('HTS Dutify Sync: No country set, using default: CA');
+    }
+    
+    error_log('HTS Dutify Sync: Retrieved data - HTS: ' . $hts_code . ', Country: ' . $country_of_origin);
+    error_log('HTS Dutify Sync: Taxonomy checks - pa_dutify_country_origin exists: ' . (taxonomy_exists('pa_dutify_country_origin') ? 'yes' : 'no'));
 
     if (empty($hts_code) || $hts_code === '9999.99.9999') {
         return false;
@@ -2208,23 +2222,61 @@ function hts_sync_to_dutify($product_id)
     }
 
     // Sync Country of Origin attribute
+    if (!taxonomy_exists('pa_dutify_country_origin')) {
+        error_log('HTS Dutify Sync: WARNING - pa_dutify_country_origin taxonomy does not exist!');
+        // Try to register it if Dutify function exists
+        if (function_exists('wc_create_attribute')) {
+            error_log('HTS Dutify Sync: Attempting to create missing country_origin attribute');
+            $args = array(
+                'slug'    => 'dutify_country_origin',
+                'name'   => __('Dutify Country Origin', 'hts-manager'),
+                'type'    => 'select',
+                'orderby' => 'menu_order',
+                'has_archives'  => false,
+            );
+            wc_create_attribute($args);
+            register_taxonomy('pa_dutify_country_origin', 'product');
+        }
+    }
+    
     if (taxonomy_exists('pa_dutify_country_origin') && !empty($country_of_origin)) {
-        // Validate and sanitize country code
-        $country_code = strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $country_of_origin), 0, 2));
+        error_log('HTS Dutify Sync: Starting country sync with value: ' . $country_of_origin);
+        
+        // Country is already stored as a 2-letter code (CA, US, etc.)
+        $country_code = strtoupper(trim($country_of_origin));
+        error_log('HTS Dutify Sync: Using country code: ' . $country_code);
 
-        // Validate it's a 2-letter code
-        if (!preg_match('/^[A-Z]{2}$/', $country_code)) {
+        // Validate it's a 2-letter code (or OTHER)
+        if (!preg_match('/^[A-Z]{2}$/', $country_code) && $country_code !== 'OTHER') {
+            error_log('HTS Dutify Sync: Invalid country code format (' . $country_code . '), using default CA');
             $country_code = 'CA'; // Default fallback
+        }
+        
+        // Convert OTHER to a default code
+        if ($country_code === 'OTHER') {
+            $country_code = 'XX'; // Use XX for unknown countries
         }
 
         // Create or get the term
         $term = term_exists($country_code, 'pa_dutify_country_origin');
         if (!$term) {
+            error_log('HTS Dutify Sync: Creating new country term: ' . $country_code);
             $term = wp_insert_term($country_code, 'pa_dutify_country_origin');
+            if (is_wp_error($term)) {
+                error_log('HTS Dutify Sync: Error creating country term: ' . $term->get_error_message());
+            }
+        } else {
+            error_log('HTS Dutify Sync: Country term already exists: ' . $country_code);
         }
 
         if (!is_wp_error($term)) {
-            wp_set_object_terms($dutify_product_id, $country_code, 'pa_dutify_country_origin');
+            $result = wp_set_object_terms($dutify_product_id, $country_code, 'pa_dutify_country_origin');
+            if (is_wp_error($result)) {
+                error_log('HTS Dutify Sync: Error setting country terms: ' . $result->get_error_message());
+            } else {
+                error_log('HTS Dutify Sync: Successfully set country term for product ' . $dutify_product_id);
+                $updated = true; // Mark as updated when terms are set successfully
+            }
 
             // Also update the product attribute
             try {
@@ -2297,6 +2349,12 @@ function hts_sync_to_dutify($product_id)
         }
     }
 
+    // If we got this far and processed the HTS code, consider it successful
+    // even if no changes were needed (already synced)
+    if (!empty($hts_code) && $hts_code !== '9999.99.9999') {
+        return true; // Return true if we have a valid HTS code, regardless of whether updates were needed
+    }
+    
     return $updated;
 }
 
@@ -2367,7 +2425,14 @@ function hts_ajax_bulk_sync_dutify()
     $original_log_errors = ini_get('log_errors');
     ini_set('log_errors', 0);
 
+    // Reset time limit for each batch to prevent timeout
+    @set_time_limit(30);
+    
     foreach ($products as $product_id) {
+        // Clear any previous product from memory
+        wp_cache_delete($product_id, 'posts');
+        wp_cache_delete($product_id, 'post_meta');
+        
         $product = wc_get_product($product_id);
         if (!$product) {
             $errors++;
@@ -2394,12 +2459,24 @@ function hts_ajax_bulk_sync_dutify()
 
         // Try to sync with better error capture
         try {
+            // Debug: Log what we're trying to sync
+            error_log('Bulk sync attempting: Product ' . $product_id . ' (' . $product_name . ') - Type: ' . $product_type);
+            
             $result = hts_sync_to_dutify($product_id);
             if ($result === true) {
                 $synced++;
 
+                // For variations, Dutify data is on the parent product
+                $check_product_id = $product_id;
+                if ($product_type === 'variation') {
+                    $parent_id = wp_get_post_parent_id($product_id);
+                    if ($parent_id) {
+                        $check_product_id = $parent_id;
+                    }
+                }
+
                 // Verify sync actually worked
-                $dutify_hs = wc_get_product_terms($product_id, 'pa_dutify_hs_code', array('fields' => 'names'));
+                $dutify_hs = wc_get_product_terms($check_product_id, 'pa_dutify_hs_code', array('fields' => 'names'));
                 $synced_code = $dutify_hs ? array_shift($dutify_hs) : null;
 
                 if ($synced_code) {
@@ -2413,15 +2490,26 @@ function hts_ajax_bulk_sync_dutify()
                 // Try to get more specific error info
                 $error_reason = "Unknown error";
 
-                // Check if it's a taxonomy issue
+                // Check various failure conditions
                 if (!taxonomy_exists('pa_dutify_hs_code')) {
                     $error_reason = "Dutify taxonomy missing";
                 } elseif ($product_type === 'variation') {
                     $error_reason = "Variation product - may need parent sync";
+                } elseif (!preg_match('/^\d{4}\.\d{2}\.\d{4}$/', $hts_code)) {
+                    $error_reason = "Invalid HTS format: " . $hts_code;
                 } else {
-                    // Check if HTS code format is valid
-                    if (!preg_match('/^\d{4}\.\d{2}\.\d{4}$/', $hts_code)) {
-                        $error_reason = "Invalid HTS format: " . $hts_code;
+                    // Check if the product couldn't be loaded for Dutify
+                    $test_product = wc_get_product($product_id);
+                    if (!$test_product) {
+                        $error_reason = "Product not found";
+                    } else {
+                        // Check if HTS code is too short when cleaned
+                        $clean_hs = preg_replace('/[^0-9]/', '', $hts_code);
+                        if (strlen($clean_hs) < 6) {
+                            $error_reason = "HTS code too short: " . $hts_code;
+                        } else {
+                            $error_reason = "Sync returned false - check logs";
+                        }
                     }
                 }
 
