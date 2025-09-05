@@ -1135,6 +1135,171 @@ function hts_manager_settings_page()
         </div>
         <?php endif; ?>
         
+        <?php
+        // Dutify Bulk Sync Section
+        if (class_exists('WOO_Dutify') && taxonomy_exists('pa_dutify_hs_code')) {
+            // Count products with HTS codes
+            $products_with_codes = get_posts(array(
+                'post_type' => 'product',
+                'posts_per_page' => -1,
+                'fields' => 'ids',
+                'meta_query' => array(
+                    array(
+                        'key' => '_hts_code',
+                        'compare' => 'EXISTS'
+                    ),
+                    array(
+                        'key' => '_hts_code',
+                        'value' => '9999.99.9999',
+                        'compare' => '!='
+                    )
+                )
+            ));
+            $total_products = count($products_with_codes);
+            ?>
+            <div style="background: white; padding: 20px; margin: 20px 0; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h2>🔄 Dutify Integration Sync</h2>
+                <p>Sync HTS codes from HTS Manager to Dutify attributes for duty calculations at checkout.</p>
+                <p><strong>Products with HTS codes:</strong> <?php echo $total_products; ?></p>
+                
+                <?php if ($total_products > 0) : ?>
+                <div style="margin-top: 20px;">
+                    <button type="button" class="button button-primary button-hero" id="bulk-sync-dutify">
+                        Sync All Products to Dutify
+                    </button>
+                    <span id="sync-status" style="margin-left: 20px;"></span>
+                </div>
+                
+                <div id="sync-progress-wrapper" style="display: none; margin-top: 20px;">
+                    <div style="background: #f0f0f0; height: 30px; border-radius: 5px; overflow: hidden;">
+                        <div id="sync-progress-bar" style="background: #007cba; height: 100%; width: 0%; transition: width 0.3s; display: flex; align-items: center; justify-content: center;">
+                            <span id="sync-progress-text" style="color: white; font-weight: bold;">0%</span>
+                        </div>
+                    </div>
+                    <div id="sync-details" style="margin-top: 10px;">
+                        <span id="sync-current">0</span> / <span id="sync-total"><?php echo $total_products; ?></span> products synced
+                        <span id="sync-errors" style="color: red; margin-left: 20px;"></span>
+                    </div>
+                </div>
+                
+                <div id="sync-log" style="margin-top: 20px; max-height: 200px; overflow-y: auto; background: #f8f9fa; padding: 10px; border: 1px solid #ddd; display: none;">
+                    <strong>Sync Log:</strong><br>
+                </div>
+                
+                <script type="text/javascript">
+                jQuery(document).ready(function($) {
+                    var syncInProgress = false;
+                    var currentBatch = 0;
+                    var batchSize = 10;
+                    var totalProducts = <?php echo json_encode($products_with_codes); ?>;
+                    var totalBatches = Math.ceil(totalProducts.length / batchSize);
+                    var successCount = 0;
+                    var errorCount = 0;
+                    
+                    $('#bulk-sync-dutify').on('click', function() {
+                        if (syncInProgress) {
+                            return;
+                        }
+                        
+                        if (!confirm('This will sync ' + totalProducts.length + ' products to Dutify. Continue?')) {
+                            return;
+                        }
+                        
+                        syncInProgress = true;
+                        currentBatch = 0;
+                        successCount = 0;
+                        errorCount = 0;
+                        
+                        $(this).prop('disabled', true).text('Syncing...');
+                        $('#sync-progress-wrapper').show();
+                        $('#sync-log').show().html('<strong>Sync Log:</strong><br>');
+                        $('#sync-status').html('<span style="color: orange;">⏳ Sync in progress...</span>');
+                        
+                        processBatch();
+                    });
+                    
+                    function processBatch() {
+                        if (currentBatch >= totalBatches) {
+                            syncComplete();
+                            return;
+                        }
+                        
+                        var start = currentBatch * batchSize;
+                        var end = Math.min(start + batchSize, totalProducts.length);
+                        var batchProducts = totalProducts.slice(start, end);
+                        
+                        $.ajax({
+                            url: ajaxurl,
+                            type: 'POST',
+                            data: {
+                                action: 'bulk_sync_dutify',
+                                products: batchProducts,
+                                batch: currentBatch + 1,
+                                total_batches: totalBatches,
+                                _wpnonce: '<?php echo wp_create_nonce('bulk_sync_dutify'); ?>'
+                            },
+                            success: function(response) {
+                                if (response.success) {
+                                    successCount += response.data.synced;
+                                    errorCount += response.data.errors;
+                                    
+                                    // Update progress
+                                    var progress = Math.round(((currentBatch + 1) / totalBatches) * 100);
+                                    $('#sync-progress-bar').css('width', progress + '%');
+                                    $('#sync-progress-text').text(progress + '%');
+                                    $('#sync-current').text(successCount + errorCount);
+                                    
+                                    // Update log
+                                    if (response.data.messages) {
+                                        response.data.messages.forEach(function(msg) {
+                                            $('#sync-log').append(msg + '<br>');
+                                        });
+                                        $('#sync-log').scrollTop($('#sync-log')[0].scrollHeight);
+                                    }
+                                    
+                                    if (errorCount > 0) {
+                                        $('#sync-errors').text('(' + errorCount + ' errors)');
+                                    }
+                                    
+                                    currentBatch++;
+                                    setTimeout(processBatch, 500); // Small delay between batches
+                                } else {
+                                    syncError('Batch ' + (currentBatch + 1) + ' failed: ' + response.data.message);
+                                }
+                            },
+                            error: function(xhr, status, error) {
+                                syncError('Network error: ' + error);
+                            }
+                        });
+                    }
+                    
+                    function syncComplete() {
+                        syncInProgress = false;
+                        $('#bulk-sync-dutify').prop('disabled', false).text('Sync Complete');
+                        $('#sync-status').html('<span style="color: green;">✅ Sync complete! ' + successCount + ' synced, ' + errorCount + ' errors</span>');
+                        $('#sync-log').append('<br><strong>✅ Sync completed!</strong><br>');
+                        
+                        setTimeout(function() {
+                            $('#bulk-sync-dutify').text('Sync All Products to Dutify');
+                        }, 5000);
+                    }
+                    
+                    function syncError(message) {
+                        syncInProgress = false;
+                        $('#bulk-sync-dutify').prop('disabled', false).text('Sync Failed - Try Again');
+                        $('#sync-status').html('<span style="color: red;">❌ ' + message + '</span>');
+                        $('#sync-log').append('<br><span style="color: red;">ERROR: ' + message + '</span><br>');
+                    }
+                });
+                </script>
+                <?php else : ?>
+                <p style="color: #666;">No products with HTS codes found. Classify products first.</p>
+                <?php endif; ?>
+            </div>
+            <?php
+        }
+        ?>
+        
         <form method="post">
             <?php wp_nonce_field('hts_settings', 'hts_nonce'); ?>
             
@@ -2157,6 +2322,71 @@ function hts_ajax_test_dutify_sync() {
     $response['dutify_hs_after'] = $dutify_hs ? implode(', ', $dutify_hs) : 'NOT SET';
     
     wp_send_json($response);
+}
+
+// AJAX handler for bulk Dutify sync
+add_action('wp_ajax_bulk_sync_dutify', 'hts_ajax_bulk_sync_dutify');
+function hts_ajax_bulk_sync_dutify() {
+    if (!check_ajax_referer('bulk_sync_dutify', '_wpnonce', false)) {
+        wp_send_json_error(array('message' => 'Security check failed'));
+        return;
+    }
+    
+    $products = isset($_POST['products']) ? array_map('intval', $_POST['products']) : array();
+    $batch = intval($_POST['batch']);
+    $total_batches = intval($_POST['total_batches']);
+    
+    if (empty($products)) {
+        wp_send_json_error(array('message' => 'No products provided'));
+        return;
+    }
+    
+    $synced = 0;
+    $errors = 0;
+    $messages = array();
+    
+    // Disable error logging temporarily to avoid clutter
+    $original_log_errors = ini_get('log_errors');
+    ini_set('log_errors', 0);
+    
+    foreach ($products as $product_id) {
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            $errors++;
+            $messages[] = "❌ Product ID $product_id not found";
+            continue;
+        }
+        
+        $hts_code = get_post_meta($product_id, '_hts_code', true);
+        if (empty($hts_code) || $hts_code === '9999.99.9999') {
+            $errors++;
+            $messages[] = "⚠️ " . $product->get_name() . " - No valid HTS code";
+            continue;
+        }
+        
+        // Try to sync
+        $result = hts_sync_to_dutify($product_id);
+        if ($result) {
+            $synced++;
+            $messages[] = "✅ " . $product->get_name() . " - Synced successfully";
+        } else {
+            $errors++;
+            $messages[] = "❌ " . $product->get_name() . " - Sync failed";
+        }
+    }
+    
+    // Restore error logging
+    ini_set('log_errors', $original_log_errors);
+    
+    $messages[] = "Batch $batch of $total_batches completed: $synced synced, $errors errors";
+    
+    wp_send_json_success(array(
+        'synced' => $synced,
+        'errors' => $errors,
+        'messages' => $messages,
+        'batch' => $batch,
+        'total_batches' => $total_batches
+    ));
 }
 
 function hts_check_api_update_for_sync($id, $data)
