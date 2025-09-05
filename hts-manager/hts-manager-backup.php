@@ -1,5 +1,4 @@
 <?php
-
 /**
  * Plugin Name: HTS Manager for WooCommerce
  * Description: Complete HTS code management - display, auto-classify, and ShipStation integration
@@ -20,81 +19,81 @@ if (!defined('HTS_MANAGER_PRO')) {
 
 // Initialize the plugin
 add_action('plugins_loaded', 'hts_manager_init');
-function hts_manager_init()
-{
-    if (!class_exists('WooCommerce')) {
-        return;
+function hts_manager_init() {
+    if (class_exists('WooCommerce')) {
+        new HTS_Manager();
     }
-
-    // Register all hooks
-    hts_register_hooks();
 }
 
 /**
- * Register all plugin hooks
+ * Main HTS Manager class
  */
-function hts_register_hooks()
-{
+class HTS_Manager {
+    
+    public function __construct() {
+        // Initialize all hooks
+        $this->init_hooks();
+    }
+    
+    /**
+     * Check if this is the pro version
+     */
+    public function is_pro() {
+        return defined('HTS_MANAGER_PRO') && HTS_MANAGER_PRO === true;
+    }
+    
+    /**
+     * Get classification limit based on version
+     * @return int -1 for unlimited (pro), positive number for limit (free)
+     */
+    public function get_classification_limit() {
+        return $this->is_pro() ? -1 : 25;
+    }
+    
+    /**
+     * Initialize all plugin hooks
+     */
+    private function init_hooks() {
+        // PART 1: PRODUCT DATA TAB & DISPLAY
+        add_filter('woocommerce_product_data_tabs', array($this, 'add_product_data_tab'));
+        add_action('woocommerce_product_data_panels', array($this, 'add_product_data_fields'));
+        add_action('woocommerce_process_product_meta', array($this, 'save_product_data_fields'));
+        
+        // PART 2: AJAX HANDLER
+        add_action('wp_ajax_hts_generate_single_code', array($this, 'ajax_generate_single_code'));
+        
+        // PART 3: AUTO-CLASSIFICATION
+        add_action('transition_post_status', array($this, 'auto_classify_on_publish'), 10, 3);
+        add_action('save_post_product', array($this, 'auto_classify_on_save'), 10, 3);
+        add_action('hts_classify_product_cron', array($this, 'run_scheduled_classification'));
+        
+        // PART 4: ADMIN
+        add_action('admin_menu', array($this, 'admin_menu'));
+        
+        // PART 5: BULK ACTIONS
+        add_filter('bulk_actions-edit-product', array($this, 'add_bulk_classify'));
+        add_filter('handle_bulk_actions-edit-product', array($this, 'handle_bulk_classify'), 10, 3);
+        add_action('admin_notices', array($this, 'bulk_classify_notice'));
+        
+        // PART 6: DASHBOARD WIDGET
+        add_action('wp_dashboard_setup', array($this, 'add_dashboard_widget'));
+        
+        // PART 7: FRONTEND DISPLAY
+        add_action('woocommerce_product_meta_end', array($this, 'display_on_product_page'));
+        
+        // PART 8: ADMIN NOTICES
+        add_action('admin_notices', array($this, 'product_save_notices'));
+        
+        // PART 9: SHIPSTATION INTEGRATION
+        add_action('plugins_loaded', array($this, 'init_shipstation_integration'));
+    }
+    
+    // ===============================================
     // PART 1: PRODUCT DATA TAB & DISPLAY
-    add_filter('woocommerce_product_data_tabs', 'hts_add_product_data_tab');
-    add_action('woocommerce_product_data_panels', 'hts_add_product_data_fields');
-    add_action('woocommerce_process_product_meta', 'hts_save_product_data_fields');
-
-    // PART 2: AJAX HANDLER
-    add_action('wp_ajax_hts_generate_single_code', 'hts_ajax_generate_single_code');
-
-    // PART 3: AUTO-CLASSIFICATION
-    add_action('transition_post_status', 'hts_auto_classify_on_publish', 10, 3);
-    add_action('save_post_product', 'hts_auto_classify_on_save', 10, 3);
-    add_action('hts_classify_product_cron', 'hts_run_scheduled_classification');
-
-    // PART 4: ADMIN
-    add_action('admin_menu', 'hts_manager_menu');
-
-    // PART 5: BULK ACTIONS
-    add_filter('bulk_actions-edit-product', 'hts_add_bulk_classify');
-    add_filter('handle_bulk_actions-edit-product', 'hts_handle_bulk_classify', 10, 3);
-    add_action('admin_notices', 'hts_bulk_classify_notice');
-
-    // PART 6: DASHBOARD WIDGET
-    add_action('wp_dashboard_setup', 'hts_add_dashboard_widget');
-
-    // PART 7: FRONTEND DISPLAY
-    add_action('woocommerce_product_meta_end', 'hts_display_on_product_page');
-
-    // PART 8: ADMIN NOTICES
-    add_action('admin_notices', 'hts_product_save_notices');
-
-    // PART 9: SHIPSTATION INTEGRATION
-    add_action('plugins_loaded', 'hts_init_shipstation_integration');
-
-    // PART 10: DUTIFY INTEGRATION (hooks registered at end of file with the functions)
-}
-
-/**
- * Check if this is the pro version
- */
-function hts_is_pro()
-{
-    return defined('HTS_MANAGER_PRO') && HTS_MANAGER_PRO === true;
-}
-
-/**
- * Get classification limit based on version
- * @return int -1 for unlimited (pro), positive number for limit (free)
- */
-function hts_get_classification_limit()
-{
-    return hts_is_pro() ? -1 : 25;
-}
-
-// ===============================================
-// PART 1: PRODUCT DATA TAB & DISPLAY
-// ===============================================
-
-// Add HTS tab to product data metabox
-function hts_add_product_data_tab($tabs)
-{
+    // ===============================================
+    
+    // Add HTS tab to product data metabox
+    public function add_product_data_tab($tabs) {
     $tabs['hts_codes'] = array(
         'label'    => __('HTS Codes', 'hts-manager'),
         'target'   => 'hts_codes_product_data',
@@ -106,16 +105,15 @@ function hts_add_product_data_tab($tabs)
 
 // Add content to HTS tab
 add_action('woocommerce_product_data_panels', 'hts_add_product_data_fields');
-function hts_add_product_data_fields()
-{
+function hts_add_product_data_fields() {
     global $post;
-
+    
     // Check if product has an HTS code
     $hts_code = get_post_meta($post->ID, '_hts_code', true);
     $country_of_origin = get_post_meta($post->ID, '_country_of_origin', true);
     $hts_confidence = get_post_meta($post->ID, '_hts_confidence', true);
     $hts_updated = get_post_meta($post->ID, '_hts_updated', true);
-
+    
     // Default country to Canada if not set
     if (empty($country_of_origin)) {
         $country_of_origin = 'CA';
@@ -132,45 +130,38 @@ function hts_add_product_data_fields()
                 'label'       => __('HTS Code', 'hts-manager'),
                 'placeholder' => '0000.00.0000',
                 'desc_tip'    => true,
-                'description' => __(
-                    'Enter the 10-digit Harmonized Tariff Schedule code for this product.',
-                    'hts-manager'
-                ),
+                'description' => __('Enter the 10-digit Harmonized Tariff Schedule code for this product.', 'hts-manager'),
                 'value'       => $hts_code,
             ));
             ?>
             
             <p class="form-field">
                 <label><?php _e('Generate HTS Code', 'hts-manager'); ?></label>
-                <button type="button" class="button button-primary" id="hts_generate_code" 
-                    <?php echo !empty($hts_code) ? 'disabled' : ''; ?>>
+                <button type="button" class="button button-primary" id="hts_generate_code" <?php echo !empty($hts_code) ? 'disabled' : ''; ?>>
                     <span class="dashicons dashicons-update" style="vertical-align: middle;"></span>
                     <?php _e('Auto-Generate with AI', 'hts-manager'); ?>
                 </button>
-                <?php if (!empty($hts_code)) : ?>
+                <?php if (!empty($hts_code)): ?>
                     <a href="#" id="hts_regenerate_link" style="margin-left: 10px; text-decoration: none;">
                         <?php _e('Regenerate', 'hts-manager'); ?>
                     </a>
                 <?php endif; ?>
-                <span id="hts_generate_spinner" class="spinner" 
-                    style="display: none; float: none; margin-left: 10px;"></span>
+                <span id="hts_generate_spinner" class="spinner" style="display: none; float: none; margin-left: 10px;"></span>
                 <span id="hts_generate_message" style="display: none; margin-left: 10px;"></span>
             </p>
             
-            <?php if ($hts_confidence) : ?>
+            <?php if ($hts_confidence): ?>
             <p class="form-field">
                 <label><?php _e('Confidence', 'hts-manager'); ?></label>
                 <span style="margin-left: 10px;">
-                    <?php
+                    <?php 
                     $confidence_percent = round($hts_confidence * 100);
-                    $confidence_color = $confidence_percent >= 85
-                        ? 'green'
-                        : ($confidence_percent >= 60 ? 'orange' : 'red');
+                    $confidence_color = $confidence_percent >= 85 ? 'green' : ($confidence_percent >= 60 ? 'orange' : 'red');
                     ?>
                     <span style="color: <?php echo $confidence_color; ?>; font-weight: bold;">
                         <?php echo $confidence_percent; ?>%
                     </span>
-                    <?php if ($hts_updated) : ?>
+                    <?php if ($hts_updated): ?>
                         <span style="color: #666; margin-left: 10px;">
                             (Updated: <?php echo date('Y-m-d H:i', strtotime($hts_updated)); ?>)
                         </span>
@@ -184,10 +175,7 @@ function hts_add_product_data_fields()
                 'id'          => '_country_of_origin',
                 'label'       => __('Country of Origin', 'hts-manager'),
                 'desc_tip'    => true,
-                'description' => __(
-                    'Select the country where this product was manufactured or produced.',
-                    'hts-manager'
-                ),
+                'description' => __('Select the country where this product was manufactured or produced.', 'hts-manager'),
                 'value'       => $country_of_origin,
                 'options'     => array(
                     'CA' => __('Canada', 'hts-manager'),
@@ -213,14 +201,8 @@ function hts_add_product_data_fields()
         <div class="options_group">
             <p style="margin: 10px;">
                 <strong><?php _e('Information:', 'hts-manager'); ?></strong><br>
-                <?php _e(
-                    'HTS codes are used for customs declarations and duty calculations when shipping internationally.',
-                    'hts-manager'
-                ); ?><br>
-                <?php _e(
-                    'These codes are automatically included in ShipStation exports for customs forms.',
-                    'hts-manager'
-                ); ?>
+                <?php _e('HTS codes are used for customs declarations and duty calculations when shipping internationally.', 'hts-manager'); ?><br>
+                <?php _e('These codes are automatically included in ShipStation exports for customs forms.', 'hts-manager'); ?>
             </p>
         </div>
         
@@ -262,11 +244,7 @@ function hts_add_product_data_fields()
                         $('#_hts_code').val(response.data.hts_code);
                         
                         // Show success message
-                        message.html(
-                            '<span style="color: green;">✓ Generated: ' + 
-                            response.data.hts_code + 
-                            ' (' + Math.round(response.data.confidence * 100) + '% confidence)</span>'
-                        );
+                        message.html('<span style="color: green;">✓ Generated: ' + response.data.hts_code + ' (' + Math.round(response.data.confidence * 100) + '% confidence)</span>');
                         message.addClass('success').show();
                         
                         // Keep button disabled since we now have a code
@@ -274,25 +252,18 @@ function hts_add_product_data_fields()
                         
                         // Show or create regenerate link
                         if (!regenerateLink.length) {
-                            button.after(
-                                ' <a href="#" id="hts_regenerate_link" ' +
-                                'style="margin-left: 10px; text-decoration: none;">Regenerate</a>'
-                            );
+                            button.after(' <a href="#" id="hts_regenerate_link" style="margin-left: 10px; text-decoration: none;">Regenerate</a>');
                             bindRegenerateHandler();
                         } else {
                             regenerateLink.show();
                         }
                         
                         // Add or update confidence display
-                        var confidenceColor = response.data.confidence >= 0.85 
-                            ? 'green' 
-                            : (response.data.confidence >= 0.60 ? 'orange' : 'red');
+                        var confidenceColor = response.data.confidence >= 0.85 ? 'green' : (response.data.confidence >= 0.60 ? 'orange' : 'red');
                         var existingConfidence = $('.hts-confidence-display');
                         
                         if (existingConfidence.length) {
-                            existingConfidence.find('span span')
-                                .css('color', confidenceColor)
-                                .text(Math.round(response.data.confidence * 100) + '%');
+                            existingConfidence.find('span span').css('color', confidenceColor).text(Math.round(response.data.confidence * 100) + '%');
                         } else if (response.data.confidence) {
                             var confidenceHtml = '<p class="form-field hts-confidence-display">' +
                                 '<label>Confidence</label>' +
@@ -326,9 +297,7 @@ function hts_add_product_data_fields()
                         regenerateLink.show();
                     }
                     
-                    message.html(
-                        '<span style="color: red;">✗ Error: ' + error + '</span>'
-                    );
+                    message.html('<span style="color: red;">✗ Error: ' + error + '</span>');
                     message.addClass('error').show();
                 }
             });
@@ -338,9 +307,7 @@ function hts_add_product_data_fields()
         function bindRegenerateHandler() {
             $('#hts_regenerate_link').off('click').on('click', function(e) {
                 e.preventDefault();
-                var confirmMsg = 'Are you sure you want to regenerate the HTS code? ' +
-                    'This will overwrite the existing code.';
-                if (confirm(confirmMsg)) {
+                if (confirm('Are you sure you want to regenerate the HTS code? This will overwrite the existing code.')) {
                     generateHTSCode(true);
                 }
             });
@@ -361,10 +328,7 @@ function hts_add_product_data_fields()
             $('#hts_generate_code').prop('disabled', hasCode);
             
             if (hasCode && !$('#hts_regenerate_link').length) {
-                $('#hts_generate_code').after(
-                    ' <a href="#" id="hts_regenerate_link" ' +
-                    'style="margin-left: 10px; text-decoration: none;">Regenerate</a>'
-                );
+                $('#hts_generate_code').after(' <a href="#" id="hts_regenerate_link" style="margin-left: 10px; text-decoration: none;">Regenerate</a>');
                 bindRegenerateHandler();
             } else if (!hasCode && $('#hts_regenerate_link').length) {
                 $('#hts_regenerate_link').remove();
@@ -377,34 +341,27 @@ function hts_add_product_data_fields()
 
 // Save HTS fields
 add_action('woocommerce_process_product_meta', 'hts_save_product_data_fields');
-function hts_save_product_data_fields($post_id)
-{
+function hts_save_product_data_fields($post_id) {
     // Security check
     if (!isset($_POST['hts_product_nonce']) || !wp_verify_nonce($_POST['hts_product_nonce'], 'hts_product_nonce_action')) {
         return;
     }
-
+    
     // Save HTS code
     if (isset($_POST['_hts_code'])) {
         $hts_code = sanitize_text_field($_POST['_hts_code']);
         update_post_meta($post_id, '_hts_code', $hts_code);
-
+        
         // Sync to Dutify if code was changed
         if (!empty($hts_code) && $hts_code !== '9999.99.9999') {
             hts_sync_to_dutify($post_id);
         }
     }
-
+    
     // Save country of origin
     if (isset($_POST['_country_of_origin'])) {
         $country = sanitize_text_field($_POST['_country_of_origin']);
-        $old_country = get_post_meta($post_id, '_country_of_origin', true);
         update_post_meta($post_id, '_country_of_origin', $country);
-        
-        // Sync to Dutify if country changed or if HTS code exists
-        if ($country !== $old_country && !empty($hts_code)) {
-            hts_sync_to_dutify($post_id);
-        }
     }
 }
 
@@ -413,53 +370,52 @@ function hts_save_product_data_fields($post_id)
 // ===============================================
 
 add_action('wp_ajax_hts_generate_single_code', 'hts_ajax_generate_single_code');
-function hts_ajax_generate_single_code()
-{
+function hts_ajax_generate_single_code() {
     // Verify nonce
     if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'hts_generate_nonce')) {
         wp_send_json_error(array('message' => 'Security check failed'));
         return;
     }
-
+    
     // Check permissions
     if (!current_user_can('edit_products')) {
         wp_send_json_error(array('message' => 'Insufficient permissions'));
         return;
     }
-
+    
     $product_id = intval($_POST['product_id']);
     if (!$product_id) {
         wp_send_json_error(array('message' => 'Invalid product ID'));
         return;
     }
-
+    
     // Get API key
     $api_key = get_option('hts_anthropic_api_key');
     if (empty($api_key)) {
         wp_send_json_error(array('message' => 'API key not configured. Please configure in WooCommerce → HTS Manager'));
         return;
     }
-
+    
     // Get product
     $product = wc_get_product($product_id);
     if (!$product) {
         wp_send_json_error(array('message' => 'Product not found'));
         return;
     }
-
+    
     // Generate HTS code
     $result = hts_classify_product($product_id, $api_key);
-
+    
     if ($result && isset($result['hts_code'])) {
         // Save the results
         update_post_meta($product_id, '_hts_code', $result['hts_code']);
         update_post_meta($product_id, '_hts_confidence', $result['confidence']);
         update_post_meta($product_id, '_hts_updated', current_time('mysql'));
         update_post_meta($product_id, '_country_of_origin', 'CA');
-
+        
         // Sync to Dutify if active
         hts_sync_to_dutify($product_id);
-
+        
         wp_send_json_success(array(
             'hts_code' => $result['hts_code'],
             'confidence' => $result['confidence'],
@@ -474,13 +430,12 @@ function hts_ajax_generate_single_code()
 // PART 3: CLASSIFICATION FUNCTION
 // ===============================================
 
-function hts_classify_product($product_id, $api_key)
-{
+function hts_classify_product($product_id, $api_key) {
     $product = wc_get_product($product_id);
     if (!$product) {
         return false;
     }
-
+    
     // Prepare product data
     $product_data = array(
         'name' => $product->get_name(),
@@ -492,7 +447,7 @@ function hts_classify_product($product_id, $api_key)
         'price' => $product->get_price(),
         'weight' => $product->get_weight(),
     );
-
+    
     // Build prompt
     $prompt = "You are an expert in Harmonized Tariff Schedule (HTS) classification for US imports. 
 Analyze this product and provide the most accurate 10-digit HTS code.
@@ -515,7 +470,7 @@ Respond in this exact JSON format:
     \"confidence\": 0.0 to 1.0,
     \"reasoning\": \"Brief explanation\"
 }";
-
+    
     // Call Claude API
     $response = wp_remote_post('https://api.anthropic.com/v1/messages', array(
         'headers' => array(
@@ -536,28 +491,28 @@ Respond in this exact JSON format:
         )),
         'timeout' => 30
     ));
-
+    
     if (is_wp_error($response)) {
         error_log('HTS Manager: API call failed - ' . $response->get_error_message());
         return false;
     }
-
+    
     $body = wp_remote_retrieve_body($response);
     $data = json_decode($body, true);
-
+    
     if (isset($data['content'][0]['text'])) {
         $response_text = $data['content'][0]['text'];
-
+        
         // Extract JSON from response
         if (preg_match('/\{.*\}/s', $response_text, $matches)) {
             $result = json_decode($matches[0], true);
-
+            
             if (isset($result['hts_code']) && preg_match('/^\d{4}\.\d{2}\.\d{4}$/', $result['hts_code'])) {
                 return $result;
             }
         }
     }
-
+    
     return false;
 }
 
@@ -567,90 +522,87 @@ Respond in this exact JSON format:
 
 // Hook into both status transitions and save_post for better coverage
 add_action('transition_post_status', 'hts_auto_classify_on_publish', 10, 3);
-function hts_auto_classify_on_publish($new_status, $old_status, $post)
-{
+function hts_auto_classify_on_publish($new_status, $old_status, $post) {
     // Check if enabled
     if (get_option('hts_auto_classify_enabled', '1') !== '1') {
         return;
     }
-
+    
     // Only process products that are published
     if ($post->post_type !== 'product' || $new_status !== 'publish') {
         return;
     }
-
+    
     // Check if already has HTS code
     $existing_hts = get_post_meta($post->ID, '_hts_code', true);
     if (!empty($existing_hts) && $existing_hts !== '9999.99.9999') {
         return;
     }
-
+    
     // Schedule classification (avoid duplicates by using unique action name)
     $hook = 'hts_classify_product_cron';
     $args = array($post->ID);
-
+    
     // Clear any existing scheduled event for this product
     wp_clear_scheduled_hook($hook, $args);
-
+    
     // Schedule new classification
     wp_schedule_single_event(time() + 5, $hook, $args);
 }
 
 // Also hook into save_post for products that are already published
 add_action('save_post_product', 'hts_auto_classify_on_save', 10, 3);
-function hts_auto_classify_on_save($post_id, $post, $update)
-{
+function hts_auto_classify_on_save($post_id, $post, $update) {
     // Skip if not an update or if it's an autosave
     if (!$update || wp_is_post_autosave($post_id) || wp_is_post_revision($post_id)) {
         return;
     }
-
+    
     // Check if enabled
     if (get_option('hts_auto_classify_enabled', '1') !== '1') {
         return;
     }
-
+    
     // Only process published products
     if ($post->post_status !== 'publish') {
         return;
     }
-
+    
     // Check if already has HTS code
     $existing_hts = get_post_meta($post_id, '_hts_code', true);
     if (!empty($existing_hts) && $existing_hts !== '9999.99.9999') {
         return;
     }
-
+    
     // Schedule classification (avoid duplicates)
     $hook = 'hts_classify_product_cron';
     $args = array($post_id);
-
+    
     // Clear any existing scheduled event for this product
     wp_clear_scheduled_hook($hook, $args);
-
+    
     // Schedule new classification
     wp_schedule_single_event(time() + 5, $hook, $args);
 }
 
 add_action('hts_classify_product_cron', 'hts_run_scheduled_classification');
-function hts_run_scheduled_classification($product_id)
-{
+function hts_run_scheduled_classification($product_id) {
     $api_key = get_option('hts_anthropic_api_key');
     if (empty($api_key)) {
         return;
     }
-
+    
     $result = hts_classify_product($product_id, $api_key);
-
+    
     if ($result && isset($result['hts_code'])) {
         update_post_meta($product_id, '_hts_code', $result['hts_code']);
         update_post_meta($product_id, '_hts_confidence', $result['confidence']);
         update_post_meta($product_id, '_hts_updated', current_time('mysql'));
         update_post_meta($product_id, '_country_of_origin', 'CA');
-
+        
         // Sync to Dutify if active
         hts_sync_to_dutify($product_id);
-
+        
         // Notify admin if low confidence
         if ($result['confidence'] < 0.60) {
             hts_notify_admin_low_confidence($product_id, $result);
@@ -658,11 +610,10 @@ function hts_run_scheduled_classification($product_id)
     }
 }
 
-function hts_notify_admin_low_confidence($product_id, $result)
-{
+function hts_notify_admin_low_confidence($product_id, $result) {
     $product = wc_get_product($product_id);
     $admin_email = get_option('admin_email');
-
+    
     $subject = 'HTS Classification Needs Review';
     $message = "A product was automatically classified with low confidence:\n\n";
     $message .= "Product: {$product->get_name()}\n";
@@ -671,7 +622,7 @@ function hts_notify_admin_low_confidence($product_id, $result)
     $message .= "Confidence: " . ($result['confidence'] * 100) . "%\n";
     $message .= "Reasoning: {$result['reasoning']}\n\n";
     $message .= "Please review: " . get_edit_post_link($product_id);
-
+    
     wp_mail($admin_email, $subject, $message);
 }
 
@@ -681,12 +632,11 @@ function hts_notify_admin_low_confidence($product_id, $result)
 
 // Initialize ShipStation integration when both plugins are active
 add_action('plugins_loaded', 'hts_init_shipstation_integration');
-function hts_init_shipstation_integration()
-{
+function hts_init_shipstation_integration() {
     if (class_exists('WooCommerce') && class_exists('WC_Shipstation_Integration')) {
         // Hook into ShipStation export - add customs data to orders
         add_filter('woocommerce_shipstation_export_order_xml', 'hts_add_customs_to_shipstation_order_xml', 10, 3);
-
+        
         // Use custom fields as fallback method
         add_filter('woocommerce_shipstation_export_custom_field_2', 'hts_set_custom_field_2_key');
         add_filter('woocommerce_shipstation_export_custom_field_2_value', 'hts_add_hts_to_custom_field_value', 10, 2);
@@ -696,112 +646,99 @@ function hts_init_shipstation_integration()
 }
 
 // Set the custom field 2 to map to HTS codes
-function hts_set_custom_field_2_key($meta_key)
-{
+function hts_set_custom_field_2_key($meta_key) {
     return '_hts_codes_summary';
 }
 
 // Set the custom field 3 to map to country of origin
-function hts_set_custom_field_3_key($meta_key)
-{
+function hts_set_custom_field_3_key($meta_key) {
     return '_country_summary';
 }
 
-function hts_add_customs_to_shipstation_order_xml($order_xml, $order, $xml)
-{
+function hts_add_customs_to_shipstation_order_xml($order_xml, $order, $xml) {
     try {
         // Store HTS codes summary in order meta for custom field fallback
         hts_store_customs_summary_in_order($order);
-
+        
         // Add CustomsItems section using correct ShipStation XML structure
         $customs_items_xml = $xml->createElement('CustomsItems');
         $has_customs_items = false;
-
+        
         foreach ($order->get_items() as $item_id => $item) {
             try {
                 $product = is_callable(array($item, 'get_product')) ? $item->get_product() : false;
-
+                
                 if (!$product || !$product->needs_shipping()) {
                     continue;
                 }
-
+                
                 $product_id = $product->get_id();
                 $hts_code = get_post_meta($product_id, '_hts_code', true);
-
+                
                 if (empty($hts_code) || $hts_code === '9999.99.9999') {
                     continue;
                 }
-
+                
                 if (!preg_match('/^\d{4}\.\d{2}\.\d{4}$/', $hts_code)) {
                     continue;
                 }
-
+                
                 $has_customs_items = true;
                 $customs_item_xml = $xml->createElement('CustomsItem');
-
+                
                 // Add required fields exactly as ShipStation expects
                 hts_safe_xml_append($xml, $customs_item_xml, 'Description', substr($product->get_name(), 0, 200), true);
                 hts_safe_xml_append($xml, $customs_item_xml, 'SKU', $product->get_sku(), false);
-
+                
                 $quantity = $item->get_quantity() - abs($order->get_qty_refunded_for_item($item_id));
                 hts_safe_xml_append($xml, $customs_item_xml, 'Quantity', max(0, $quantity), false);
-
+                
                 $item_value = $order->get_item_subtotal($item, false, false);
                 if (is_numeric($item_value)) {
-                    hts_safe_xml_append(
-                        $xml,
-                        $customs_item_xml,
-                        'ItemValue',
-                        number_format($item_value, 2, '.', ''),
-                        false
-                    );
+                    hts_safe_xml_append($xml, $customs_item_xml, 'ItemValue', number_format($item_value, 2, '.', ''), false);
                 }
-
+                
                 // Format HTS code according to ShipStation API docs
                 // API expects harmonized_tariff_code field with format like "3926.10" (keeping dots)
                 hts_safe_xml_append($xml, $customs_item_xml, 'harmonized_tariff_code', $hts_code, false);
-
+                
                 $country = get_post_meta($product_id, '_country_of_origin', true) ?: 'CA';
                 hts_safe_xml_append($xml, $customs_item_xml, 'CountryOfOrigin', strtoupper($country), false);
-
+                
                 $customs_items_xml->appendChild($customs_item_xml);
-
-                hts_log_info(
-                    'Added customs item: ' . $product->get_name() .
-                    ' (HTS: ' . $hts_code . ', Country: ' . strtoupper($country) . ')'
-                );
+                
+                hts_log_info('Added customs item: ' . $product->get_name() . ' (HTS: ' . $hts_code . ', Country: ' . strtoupper($country) . ')');
+                
             } catch (Exception $e) {
                 hts_log_error('Error processing customs item: ' . $e->getMessage());
                 continue;
             }
         }
-
+        
         if ($has_customs_items) {
             $order_xml->appendChild($customs_items_xml);
             hts_log_info('Added CustomsItems section to order ' . $order->get_id());
         }
+        
     } catch (Exception $e) {
         hts_log_error('Error in order customs processing: ' . $e->getMessage());
     }
-
+    
     return $order_xml;
 }
 
 /**
  * Store customs summary in order meta for custom field fallback
  */
-function hts_store_customs_summary_in_order($order)
-{
+function hts_store_customs_summary_in_order($order) {
     $hts_codes = array();
     $countries = array();
-
+    
     foreach ($order->get_items() as $item) {
         try {
             $product = $item->get_product();
-            if (!$product) {
-                continue;
-            }
-
+            if (!$product) continue;
+            
             $hts_code = get_post_meta($product->get_id(), '_hts_code', true);
             if ($hts_code && $hts_code !== '9999.99.9999' && preg_match('/^\d{4}\.\d{2}\.\d{4}$/', $hts_code)) {
                 $sku = $product->get_sku();
@@ -809,7 +746,7 @@ function hts_store_customs_summary_in_order($order)
                     $hts_codes[] = substr($sku, 0, 20) . ':' . $hts_code;
                 }
             }
-
+            
             $country = get_post_meta($product->get_id(), '_country_of_origin', true) ?: 'CA';
             if (!in_array($country, $countries)) {
                 $countries[] = strtoupper($country);
@@ -818,7 +755,7 @@ function hts_store_customs_summary_in_order($order)
             continue;
         }
     }
-
+    
     // Store summaries in order meta
     if (!empty($hts_codes)) {
         $order->update_meta_data('_hts_codes_summary', implode(', ', $hts_codes));
@@ -832,67 +769,62 @@ function hts_store_customs_summary_in_order($order)
 /**
  * Custom field 2 value - return HTS codes summary from order meta
  */
-function hts_add_hts_to_custom_field_value($value, $order_id)
-{
+function hts_add_hts_to_custom_field_value($value, $order_id) {
     try {
         $order = wc_get_order($order_id);
-        if (!$order) {
-            return $value;
-        }
-
+        if (!$order) return $value;
+        
         $hts_summary = $order->get_meta('_hts_codes_summary', true);
         if (!empty($hts_summary)) {
             hts_log_info('Returning HTS codes for custom field 2: ' . $hts_summary);
             return $hts_summary;
         }
+        
     } catch (Exception $e) {
         hts_log_error('Error in custom field 2 value: ' . $e->getMessage());
     }
-
+    
     return $value;
 }
 
 /**
  * Custom field 3 value - return country summary from order meta
  */
-function hts_add_country_to_custom_field_value($value, $order_id)
-{
+function hts_add_country_to_custom_field_value($value, $order_id) {
     try {
         $order = wc_get_order($order_id);
-        if (!$order) {
-            return $value;
-        }
-
+        if (!$order) return $value;
+        
         $country_summary = $order->get_meta('_country_summary', true);
         if (!empty($country_summary)) {
             hts_log_info('Returning countries for custom field 3: ' . $country_summary);
             return $country_summary;
         }
+        
     } catch (Exception $e) {
         hts_log_error('Error in custom field 3 value: ' . $e->getMessage());
     }
-
+    
     return $value;
 }
 
 /**
  * Safe XML append helper - won't throw exceptions
  */
-function hts_safe_xml_append($xml, $parent, $name, $value, $cdata = true)
-{
+function hts_safe_xml_append($xml, $parent, $name, $value, $cdata = true) {
     try {
         if (!$xml || !$parent || !$name) {
             return false;
         }
-
+        
         $value = (string) $value;
         if (empty($value) && $value !== '0') {
             return false;
         }
-
+        
         // Clean value of any invalid XML characters
         $value = preg_replace('/[^\x{0009}\x{000a}\x{000d}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}]+/u', '', $value);
-
+        
         $element = $xml->createElement($name);
         if ($cdata && $value) {
             $element->appendChild($xml->createCDATASection($value));
@@ -901,6 +833,7 @@ function hts_safe_xml_append($xml, $parent, $name, $value, $cdata = true)
         }
         $parent->appendChild($element);
         return true;
+        
     } catch (Exception $e) {
         hts_log_error('XML append failed for ' . $name . ': ' . $e->getMessage());
         return false;
@@ -910,8 +843,7 @@ function hts_safe_xml_append($xml, $parent, $name, $value, $cdata = true)
 /**
  * Enhanced logging functions for debugging ShipStation integration
  */
-function hts_log_error($message, $context = array())
-{
+function hts_log_error($message, $context = array()) {
     try {
         if (defined('WP_DEBUG') && WP_DEBUG) {
             $log_message = '[HTS Manager ERROR] ' . $message;
@@ -920,7 +852,7 @@ function hts_log_error($message, $context = array())
             }
             error_log($log_message);
         }
-
+        
         if (function_exists('wc_get_logger')) {
             $logger = wc_get_logger();
             $logger->error($message, array('source' => 'hts-manager', 'context' => $context));
@@ -930,8 +862,7 @@ function hts_log_error($message, $context = array())
     }
 }
 
-function hts_log_info($message, $context = array())
-{
+function hts_log_info($message, $context = array()) {
     try {
         if (defined('WP_DEBUG') && WP_DEBUG) {
             $log_message = '[HTS Manager INFO] ' . $message;
@@ -940,7 +871,7 @@ function hts_log_info($message, $context = array())
             }
             error_log($log_message);
         }
-
+        
         if (function_exists('wc_get_logger')) {
             $logger = wc_get_logger();
             $logger->info($message, array('source' => 'hts-manager', 'context' => $context));
@@ -955,8 +886,7 @@ function hts_log_info($message, $context = array())
 // ===============================================
 
 add_action('admin_menu', 'hts_manager_menu');
-function hts_manager_menu()
-{
+function hts_manager_menu() {
     add_submenu_page(
         'woocommerce',
         'HTS Manager',
@@ -967,8 +897,7 @@ function hts_manager_menu()
     );
 }
 
-function hts_manager_settings_page()
-{
+function hts_manager_settings_page() {
     // Save settings
     if (isset($_POST['submit']) && wp_verify_nonce($_POST['hts_nonce'], 'hts_settings')) {
         update_option('hts_anthropic_api_key', sanitize_text_field($_POST['api_key']));
@@ -976,37 +905,30 @@ function hts_manager_settings_page()
         update_option('hts_confidence_threshold', floatval($_POST['confidence_threshold']));
         echo '<div class="notice notice-success"><p>Settings saved!</p></div>';
     }
-
+    
     // Handle test classification
     if (isset($_POST['test_classify']) && wp_verify_nonce($_POST['hts_test_nonce'], 'hts_test')) {
         $test_product_id = intval($_POST['test_product_id']);
         if ($test_product_id > 0) {
             $api_key = get_option('hts_anthropic_api_key');
             if ($api_key) {
-                echo '<div class="notice notice-info"><p>' .
-                    'Testing classification for product ID: ' . $test_product_id .
-                    '</p></div>';
-
+                echo '<div class="notice notice-info"><p>Testing classification for product ID: ' . $test_product_id . '</p></div>';
+                
                 $result = hts_classify_product($test_product_id, $api_key);
-
+                
                 if ($result && isset($result['hts_code'])) {
                     update_post_meta($test_product_id, '_hts_code', $result['hts_code']);
                     update_post_meta($test_product_id, '_hts_confidence', $result['confidence']);
                     update_post_meta($test_product_id, '_hts_updated', current_time('mysql'));
-
-                    echo '<div class="notice notice-success"><p>' .
-                        '✓ Classification successful! HTS Code: ' . $result['hts_code'] .
-                        ' (Confidence: ' . round($result['confidence'] * 100) . '%)' .
-                        '</p></div>';
+                    
+                    echo '<div class="notice notice-success"><p>✓ Classification successful! HTS Code: ' . $result['hts_code'] . ' (Confidence: ' . round($result['confidence'] * 100) . '%)</p></div>';
                 } else {
-                    echo '<div class="notice notice-error"><p>' .
-                        '✗ Classification failed. Please check your API key and try again.' .
-                        '</p></div>';
+                    echo '<div class="notice notice-error"><p>✗ Classification failed. Please check your API key and try again.</p></div>';
                 }
             }
         }
     }
-
+    
     $api_key = get_option('hts_anthropic_api_key', '');
     $enabled = get_option('hts_auto_classify_enabled', '1');
     $threshold = get_option('hts_confidence_threshold', 0.60);
@@ -1015,14 +937,12 @@ function hts_manager_settings_page()
         <h1>HTS Manager for WooCommerce</h1>
         
         <div class="notice notice-info">
-            <p><strong>Complete HTS Management System</strong> - 
-                This plugin handles HTS code display, auto-classification, and ShipStation integration.</p>
+            <p><strong>Complete HTS Management System</strong> - This plugin handles HTS code display, auto-classification, and ShipStation integration.</p>
         </div>
         
-        <?php if (empty($api_key)) : ?>
+        <?php if (empty($api_key)): ?>
         <div class="notice notice-warning">
-            <p><strong>⚠️ Setup Required:</strong> 
-                Please add your Anthropic API key below to enable auto-classification.</p>
+            <p><strong>⚠️ Setup Required:</strong> Please add your Anthropic API key below to enable auto-classification.</p>
         </div>
         <?php endif; ?>
         
@@ -1044,13 +964,10 @@ function hts_manager_settings_page()
                 <tr>
                     <th scope="row">Anthropic API Key</th>
                     <td>
-                        <input type="password" name="api_key" 
-                            value="<?php echo esc_attr($api_key); ?>" class="regular-text">
+                        <input type="password" name="api_key" value="<?php echo esc_attr($api_key); ?>" class="regular-text">
                         <p class="description">Your Claude API key from Anthropic</p>
-                        <?php if (!empty($api_key)) : ?>
-                        <p class="description" style="color: green;">
-                            ✓ API key is configured (<?php echo strlen($api_key); ?> characters)
-                        </p>
+                        <?php if (!empty($api_key)): ?>
+                        <p class="description" style="color: green;">✓ API key is configured (<?php echo strlen($api_key); ?> characters)</p>
                         <?php endif; ?>
                     </td>
                 </tr>
@@ -1058,12 +975,8 @@ function hts_manager_settings_page()
                 <tr>
                     <th scope="row">Low Confidence Threshold</th>
                     <td>
-                        <input type="number" name="confidence_threshold" 
-                            value="<?php echo esc_attr($threshold); ?>" 
-                            min="0" max="1" step="0.05">
-                        <p class="description">
-                            Send email notification if confidence is below this threshold (0.60 = 60%)
-                        </p>
+                        <input type="number" name="confidence_threshold" value="<?php echo esc_attr($threshold); ?>" min="0" max="1" step="0.05">
+                        <p class="description">Send email notification if confidence is below this threshold (0.60 = 60%)</p>
                     </td>
                 </tr>
             </table>
@@ -1097,7 +1010,7 @@ function hts_manager_settings_page()
         // Get current page
         $current_page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
         $per_page = 20;
-
+        
         // First, get total count
         $count_args = array(
             'post_type' => 'product',
@@ -1116,11 +1029,11 @@ function hts_manager_settings_page()
                 )
             )
         );
-
+        
         $all_products_without_codes = get_posts($count_args);
         $total_without_codes = count($all_products_without_codes);
         $total_pages = ceil($total_without_codes / $per_page);
-
+        
         // Now get paginated results
         $args = array(
             'post_type' => 'product',
@@ -1139,23 +1052,18 @@ function hts_manager_settings_page()
                 )
             )
         );
-
+        
         $products = get_posts($args);
-
+        
         if ($total_without_codes > 0) {
             // Show summary and bulk action
-            echo '<div style="margin-bottom: 20px; padding: 15px; background: #f0f0f1; ' .
-                'border-left: 4px solid #2271b1;">';
-            echo '<p style="font-size: 16px; margin: 0 0 10px 0;">' .
-                '<strong>Found ' . $total_without_codes . ' products without HTS codes</strong></p>';
-
+            echo '<div style="margin-bottom: 20px; padding: 15px; background: #f0f0f1; border-left: 4px solid #2271b1;">';
+            echo '<p style="font-size: 16px; margin: 0 0 10px 0;"><strong>Found ' . $total_without_codes . ' products without HTS codes</strong></p>';
+            
             if ($total_without_codes > 20) {
-                echo '<p style="margin: 10px 0;">Showing ' .
-                    (($current_page - 1) * $per_page + 1) . '-' .
-                    min($current_page * $per_page, $total_without_codes) .
-                    ' of ' . $total_without_codes . ' products</p>';
+                echo '<p style="margin: 10px 0;">Showing ' . (($current_page - 1) * $per_page + 1) . '-' . min($current_page * $per_page, $total_without_codes) . ' of ' . $total_without_codes . ' products</p>';
             }
-
+            
             // Bulk classify button
             echo '<div style="margin-top: 15px;">';
             echo '<button class="button button-primary button-large" id="hts-classify-all-missing" data-product-ids="' . esc_attr(implode(',', $all_products_without_codes)) . '">';
@@ -1164,9 +1072,9 @@ function hts_manager_settings_page()
             echo '<span id="hts-bulk-progress" style="display: none; margin-left: 15px;"></span>';
             echo '<div id="hts-bulk-status" style="margin-top: 10px; display: none;"></div>';
             echo '</div>';
-
+            
             echo '</div>';
-
+            
             // Products table
             echo '<table class="wp-list-table widefat fixed striped">';
             echo '<thead><tr><th>ID</th><th>Product Name</th><th>SKU</th><th>Actions</th></tr></thead>';
@@ -1183,16 +1091,16 @@ function hts_manager_settings_page()
                 echo '</tr>';
             }
             echo '</tbody></table>';
-
+            
             // Pagination
             if ($total_pages > 1) {
                 echo '<div style="margin-top: 20px; text-align: right;">';
                 $base_url = admin_url('admin.php?page=hts-manager');
-
+                
                 echo '<div class="tablenav-pages">';
                 echo '<span class="displaying-num">' . $total_without_codes . ' items</span>';
                 echo '<span class="pagination-links">';
-
+                
                 // First page
                 if ($current_page > 1) {
                     echo '<a class="first-page button" href="' . $base_url . '&paged=1">«</a> ';
@@ -1201,11 +1109,11 @@ function hts_manager_settings_page()
                     echo '<span class="tablenav-pages-navspan button disabled">«</span> ';
                     echo '<span class="tablenav-pages-navspan button disabled">‹</span> ';
                 }
-
+                
                 echo '<span class="paging-input">';
                 echo '<span class="tablenav-paging-text">' . $current_page . ' of <span class="total-pages">' . $total_pages . '</span></span>';
                 echo '</span>';
-
+                
                 // Next/Last page
                 if ($current_page < $total_pages) {
                     echo ' <a class="next-page button" href="' . $base_url . '&paged=' . ($current_page + 1) . '">›</a>';
@@ -1214,12 +1122,12 @@ function hts_manager_settings_page()
                     echo ' <span class="tablenav-pages-navspan button disabled">›</span>';
                     echo ' <span class="tablenav-pages-navspan button disabled">»</span>';
                 }
-
+                
                 echo '</span>';
                 echo '</div>';
                 echo '</div>';
             }
-
+            
             ?>
             <script type="text/javascript">
             jQuery(document).ready(function($) {
@@ -1323,16 +1231,14 @@ function hts_manager_settings_page()
                             // Update progress
                             var percentComplete = Math.round((processed / totalProducts) * 100);
                             $('#hts-bulk-progress').html(
-                                '<div style="display: inline-block; width: 200px; background: #f0f0f0; ' +
-                                'border-radius: 10px; overflow: hidden; margin-right: 10px;">' +
+                                '<div style="display: inline-block; width: 200px; background: #f0f0f0; border-radius: 10px; overflow: hidden; margin-right: 10px;">' +
                                 '<div style="background: #2271b1; height: 20px; width: ' + percentComplete + '%; transition: width 0.3s;"></div>' +
                                 '</div>' +
                                 processed + ' / ' + totalProducts + ' (' + percentComplete + '%)'
                             );
                             
                             $('#hts-bulk-status').html(
-                                '<div style="padding: 10px; background: #fff; ' +
-                                'border: 1px solid #c3c4c7; border-radius: 4px;">' +
+                                '<div style="padding: 10px; background: #fff; border: 1px solid #c3c4c7; border-radius: 4px;">' +
                                 'Processing batch ' + (batchIndex + 1) + ' of ' + batches.length + '<br>' +
                                 '✓ Succeeded: ' + succeeded + ' | ✗ Failed: ' + failed +
                                 '</div>'
@@ -1378,8 +1284,7 @@ function hts_manager_settings_page()
                 <h4>🌅 Start of Day:</h4>
                 <ol style="line-height: 1.8;">
                     <li>Check the <strong>Dashboard Widget</strong> for status overview</li>
-                    <li>If you see <span style="color: #d63638;">❌ Products without codes</span>, 
-                        they'll auto-classify as you work</li>
+                    <li>If you see <span style="color: #d63638;">❌ Products without codes</span>, they'll auto-classify as you work</li>
                     <li>Review any <span style="color: #dba617;">⚠️ Low confidence</span> items if time permits</li>
                 </ol>
             </div>
@@ -1436,8 +1341,7 @@ function hts_manager_settings_page()
                     <li>🟢 <strong>Green progress bar</strong> = You're all set!</li>
                     <li>🟡 <strong>Yellow progress bar</strong> = Some products need attention</li>
                     <li>🔴 <strong>Red progress bar</strong> = Many products missing codes</li>
-                    <li>💡 <strong>Low confidence?</strong> The code is probably still correct, 
-                        but double-check if shipping high-value items</li>
+                    <li>💡 <strong>Low confidence?</strong> The code is probably still correct, but double-check if shipping high-value items</li>
                     <li>🔄 <strong>Regenerate a code:</strong> Use the "Regenerate" link next to the AI button</li>
                 </ul>
             </div>
@@ -1459,40 +1363,32 @@ function hts_manager_settings_page()
 // ===============================================
 
 add_filter('bulk_actions-edit-product', 'hts_add_bulk_classify');
-function hts_add_bulk_classify($bulk_actions)
-{
+function hts_add_bulk_classify($bulk_actions) {
     $bulk_actions['hts_classify'] = __('Generate HTS Codes', 'hts-manager');
     return $bulk_actions;
 }
 
 add_filter('handle_bulk_actions-edit-product', 'hts_handle_bulk_classify', 10, 3);
-function hts_handle_bulk_classify($redirect_to, $action, $post_ids)
-{
+function hts_handle_bulk_classify($redirect_to, $action, $post_ids) {
     if ($action !== 'hts_classify') {
         return $redirect_to;
     }
-
+    
     foreach ($post_ids as $post_id) {
         wp_schedule_single_event(time() + rand(5, 30), 'hts_classify_product_cron', array($post_id));
     }
-
+    
     $redirect_to = add_query_arg('hts_classified', count($post_ids), $redirect_to);
     return $redirect_to;
 }
 
 add_action('admin_notices', 'hts_bulk_classify_notice');
-function hts_bulk_classify_notice()
-{
+function hts_bulk_classify_notice() {
     if (!empty($_REQUEST['hts_classified'])) {
         $count = intval($_REQUEST['hts_classified']);
         printf(
-            '<div class="notice notice-success is-dismissible"><p>' .
-            _n(
-                'Queued %s product for HTS classification.',
-                'Queued %s products for HTS classification.',
-                $count,
-                'hts-manager'
-            ) .
+            '<div class="notice notice-success is-dismissible"><p>' . 
+            _n('Queued %s product for HTS classification.', 'Queued %s products for HTS classification.', $count, 'hts-manager') . 
             '</p></div>',
             $count
         );
@@ -1504,13 +1400,12 @@ function hts_bulk_classify_notice()
 // ===============================================
 
 add_action('woocommerce_product_meta_end', 'hts_display_on_product_page');
-function hts_display_on_product_page()
-{
+function hts_display_on_product_page() {
     if (get_option('hts_show_on_frontend', '0') === '1') {
         global $product;
         $hts_code = get_post_meta($product->get_id(), '_hts_code', true);
         $country = get_post_meta($product->get_id(), '_country_of_origin', true);
-
+        
         if ($hts_code) {
             echo '<span class="hts-code">HTS Code: ' . esc_html($hts_code) . '</span><br>';
         }
@@ -1525,8 +1420,7 @@ function hts_display_on_product_page()
 // ===============================================
 
 add_action('wp_dashboard_setup', 'hts_add_dashboard_widget');
-function hts_add_dashboard_widget()
-{
+function hts_add_dashboard_widget() {
     if (current_user_can('manage_woocommerce')) {
         wp_add_dashboard_widget(
             'hts_classification_status',
@@ -1536,14 +1430,13 @@ function hts_add_dashboard_widget()
     }
 }
 
-function hts_dashboard_widget_display()
-{
+function hts_dashboard_widget_display() {
     global $wpdb;
-
+    
     // Get total products
     $total_products = wp_count_posts('product');
     $total_published = $total_products->publish;
-
+    
     // Get products with HTS codes
     $with_codes = $wpdb->get_var("
         SELECT COUNT(DISTINCT post_id) 
@@ -1555,7 +1448,7 @@ function hts_dashboard_widget_display()
         AND p.post_status = 'publish'
         AND p.post_type = 'product'
     ");
-
+    
     // Get products with low confidence
     $low_confidence = $wpdb->get_var("
         SELECT COUNT(DISTINCT post_id) 
@@ -1566,7 +1459,7 @@ function hts_dashboard_widget_display()
         AND p.post_status = 'publish'
         AND p.post_type = 'product'
     ");
-
+    
     // Check for pending scheduled classifications
     $pending_crons = 0;
     $crons = _get_cron_array();
@@ -1575,13 +1468,13 @@ function hts_dashboard_widget_display()
             $pending_crons += count($cron['hts_classify_product_cron']);
         }
     }
-
+    
     $without_codes = $total_published - $with_codes;
     $percentage = $total_published > 0 ? round(($with_codes / $total_published) * 100, 1) : 0;
-
+    
     // Define status color based on coverage
     $status_color = $percentage >= 95 ? '#00a32a' : ($percentage >= 80 ? '#dba617' : '#d63638');
-
+    
     ?>
     <style>
         .hts-widget-stats {
@@ -1654,21 +1547,21 @@ function hts_dashboard_widget_display()
                 <span class="hts-stat-value hts-status-good"><?php echo number_format($with_codes); ?></span>
             </div>
             
-            <?php if ($without_codes > 0) : ?>
+            <?php if ($without_codes > 0): ?>
             <div class="hts-stat-row">
                 <span class="hts-stat-label">❌ Products without codes:</span>
                 <span class="hts-stat-value hts-status-error"><?php echo number_format($without_codes); ?></span>
             </div>
             <?php endif; ?>
             
-            <?php if ($pending_crons > 0) : ?>
+            <?php if ($pending_crons > 0): ?>
             <div class="hts-stat-row">
                 <span class="hts-stat-label">⏳ Pending classification:</span>
                 <span class="hts-stat-value hts-status-warning"><?php echo number_format($pending_crons); ?></span>
             </div>
             <?php endif; ?>
             
-            <?php if ($low_confidence > 0) : ?>
+            <?php if ($low_confidence > 0): ?>
             <div class="hts-stat-row">
                 <span class="hts-stat-label">⚠️ Low confidence (needs review):</span>
                 <span class="hts-stat-value hts-status-warning"><?php echo number_format($low_confidence); ?></span>
@@ -1682,13 +1575,13 @@ function hts_dashboard_widget_display()
         </div>
         
         <div class="hts-action-buttons">
-            <?php if ($without_codes > 0) : ?>
+            <?php if ($without_codes > 0): ?>
             <a href="<?php echo admin_url('admin.php?page=hts-manager'); ?>" class="button button-primary">
                 Classify Missing
             </a>
             <?php endif; ?>
             
-            <?php if ($low_confidence > 0) : ?>
+            <?php if ($low_confidence > 0): ?>
             <a href="<?php echo admin_url('admin.php?page=hts-manager'); ?>" class="button">
                 Review Products
             </a>
@@ -1699,7 +1592,7 @@ function hts_dashboard_widget_display()
             </a>
         </div>
         
-        <?php if ($pending_crons > 0) : ?>
+        <?php if ($pending_crons > 0): ?>
         <div class="hts-refresh-notice">
             ⏱️ Classifications in progress. Refresh in a minute to see updates.
         </div>
@@ -1707,15 +1600,13 @@ function hts_dashboard_widget_display()
         
         <div class="hts-refresh-notice" style="margin-top: 15px;">
             <a href="#" onclick="location.reload(); return false;">↻ Refresh Stats</a>
-            <?php if ($with_codes === $total_published) : ?>
+            <?php if ($with_codes === $total_published): ?>
             | <span style="color: #00a32a;">✨ All products classified!</span>
             <?php endif; ?>
-            | <a href="#" onclick="jQuery('#hts-quick-guide').toggle(); return false;">
-                📖 Quick Guide</a>
+            | <a href="#" onclick="jQuery('#hts-quick-guide').toggle(); return false;">📖 Quick Guide</a>
         </div>
         
-        <div id="hts-quick-guide" style="display: none; margin-top: 15px; padding: 15px; 
-            background: #f8f9fa; border-left: 4px solid #2271b1; border-radius: 4px;">
+        <div id="hts-quick-guide" style="display: none; margin-top: 15px; padding: 15px; background: #f8f9fa; border-left: 4px solid #2271b1; border-radius: 4px;">
             <h4 style="margin-top: 0;">🚀 Quick Usage Guide</h4>
             <ol style="margin-left: 20px; line-height: 1.6;">
                 <li><strong>New Products:</strong> HTS codes auto-generate when you publish/update</li>
@@ -1736,23 +1627,23 @@ function hts_dashboard_widget_display()
 // ===============================================
 
 add_action('admin_notices', 'hts_product_save_notices');
-function hts_product_save_notices()
-{
+function hts_product_save_notices() {
     $screen = get_current_screen();
-
+    
     // Only show on product edit screen
     if ($screen && $screen->id === 'product') {
         global $post;
-
+        
         if ($post && $post->post_type === 'product') {
             $hts_code = get_post_meta($post->ID, '_hts_code', true);
-
+            
             // Check if we just saved (by looking for the 'message' parameter)
             if (isset($_GET['message']) && $_GET['message'] == '1') {
+                
                 // Check if classification is scheduled
                 $crons = _get_cron_array();
                 $is_scheduled = false;
-
+                
                 foreach ($crons as $timestamp => $cron) {
                     if (isset($cron['hts_classify_product_cron'])) {
                         foreach ($cron['hts_classify_product_cron'] as $hook) {
@@ -1763,14 +1654,13 @@ function hts_product_save_notices()
                         }
                     }
                 }
-
+                
                 if ($is_scheduled && empty($hts_code)) {
                     ?>
                     <div class="notice notice-info is-dismissible">
                         <p>
                             <strong>⏳ HTS Classification in Progress</strong><br>
-                            The HTS code is being generated for this product. 
-                            Refresh the page in a few seconds to see the result.
+                            The HTS code is being generated for this product. Refresh the page in a few seconds to see the result.
                         </p>
                     </div>
                     <?php
@@ -1801,28 +1691,27 @@ function hts_product_save_notices()
  * Sync HTS code to Dutify plugin attributes
  * This function automatically syncs HTS codes to Dutify whenever they are saved
  */
-function hts_sync_to_dutify($product_id)
-{
+function hts_sync_to_dutify($product_id) {
     // Validate product ID
     $product_id = absint($product_id);
     if (!$product_id) {
         return false;
     }
-
+    
     // Check if Dutify plugin is active
     if (!class_exists('WOO_Dutify')) {
         return false;
     }
-
+    
     // Verify product exists and is valid
     if (get_post_type($product_id) !== 'product') {
         return false;
     }
-
+    
     // Implement rate limiting using transients (max 30 syncs per minute for bulk operations)
     $rate_limit_key = 'hts_dutify_sync_count';
     $sync_count = get_transient($rate_limit_key);
-
+    
     if ($sync_count === false) {
         set_transient($rate_limit_key, 1, 60); // Reset every minute
     } elseif ($sync_count >= 30) {
@@ -1832,44 +1721,44 @@ function hts_sync_to_dutify($product_id)
     } else {
         set_transient($rate_limit_key, $sync_count + 1, 60);
     }
-
+    
     // Get HTS Manager data with sanitization
     $hts_code = sanitize_text_field(get_post_meta($product_id, '_hts_code', true));
     $country_of_origin = sanitize_text_field(get_post_meta($product_id, '_country_of_origin', true));
-
+    
     if (empty($hts_code) || $hts_code === '9999.99.9999') {
         return false;
     }
-
+    
     // Get the product
     $product = wc_get_product($product_id);
     if (!$product) {
         return false;
     }
-
+    
     $updated = false;
-
+    
     // Sync HS Code attribute
     if (taxonomy_exists('pa_dutify_hs_code')) {
         // Validate HTS code format before processing
         if (!preg_match('/^\d{4}\.\d{2}\.\d{4}$/', $hts_code)) {
             return false;
         }
-
+        
         // Remove dots from HTS code for Dutify format (they typically use codes without dots)
         $clean_hs_code = preg_replace('/[^0-9]/', '', $hts_code);
-
+        
         // Additional validation for clean code
         if (strlen($clean_hs_code) !== 10) {
             return false;
         }
-
+        
         // Create or get the term - use the clean code directly as term name
         $term = term_exists($clean_hs_code, 'pa_dutify_hs_code');
         if (!$term) {
             $term = wp_insert_term($clean_hs_code, 'pa_dutify_hs_code');
         }
-
+        
         if (!is_wp_error($term)) {
             // Get the term ID properly
             $term_id = is_array($term) ? $term['term_id'] : $term;
@@ -1877,7 +1766,7 @@ function hts_sync_to_dutify($product_id)
                 return false;
             }
             wp_set_object_terms($product_id, intval($term_id), 'pa_dutify_hs_code');
-
+            
             // Also update the product attribute
             try {
                 $attributes = $product->get_attributes();
@@ -1887,7 +1776,7 @@ function hts_sync_to_dutify($product_id)
                 $hs_code_attribute->set_options(array(intval($term_id)));
                 $hs_code_attribute->set_visible(false);
                 $hs_code_attribute->set_variation(false);
-
+                
                 $attributes['pa_dutify_hs_code'] = $hs_code_attribute;
                 $product->set_attributes($attributes);
             } catch (Exception $e) {
@@ -1897,26 +1786,26 @@ function hts_sync_to_dutify($product_id)
             $updated = true;
         }
     }
-
+    
     // Sync Country of Origin attribute
     if (taxonomy_exists('pa_dutify_country_origin') && !empty($country_of_origin)) {
         // Validate and sanitize country code
         $country_code = strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $country_of_origin), 0, 2));
-
+        
         // Validate it's a 2-letter code
         if (!preg_match('/^[A-Z]{2}$/', $country_code)) {
             $country_code = 'CA'; // Default fallback
         }
-
+        
         // Create or get the term
         $term = term_exists($country_code, 'pa_dutify_country_origin');
         if (!$term) {
             $term = wp_insert_term($country_code, 'pa_dutify_country_origin');
         }
-
+        
         if (!is_wp_error($term)) {
             wp_set_object_terms($product_id, $country_code, 'pa_dutify_country_origin');
-
+            
             // Also update the product attribute
             try {
                 $term_id = is_array($term) ? $term['term_id'] : $term;
@@ -1927,7 +1816,7 @@ function hts_sync_to_dutify($product_id)
                 $country_attribute->set_options(array(intval($term_id)));
                 $country_attribute->set_visible(false);
                 $country_attribute->set_variation(false);
-
+                
                 $attributes['pa_dutify_country_origin'] = $country_attribute;
                 $product->set_attributes($attributes);
                 $updated = true;
@@ -1936,19 +1825,19 @@ function hts_sync_to_dutify($product_id)
             }
         }
     }
-
+    
     // Sync HS Code Country (default to US for North American trade)
     if (taxonomy_exists('pa_dutify_hs_code_country')) {
         $hs_country = 'US'; // Default to US for HTS codes
-
+        
         $term = term_exists($hs_country, 'pa_dutify_hs_code_country');
         if (!$term) {
             $term = wp_insert_term($hs_country, 'pa_dutify_hs_code_country');
         }
-
+        
         if (!is_wp_error($term)) {
             wp_set_object_terms($product_id, $hs_country, 'pa_dutify_hs_code_country');
-
+            
             try {
                 $term_id = is_array($term) ? $term['term_id'] : $term;
                 $attributes = $product->get_attributes();
@@ -1958,7 +1847,7 @@ function hts_sync_to_dutify($product_id)
                 $hs_country_attribute->set_options(array(intval($term_id)));
                 $hs_country_attribute->set_visible(false);
                 $hs_country_attribute->set_variation(false);
-
+                
                 $attributes['pa_dutify_hs_code_country'] = $hs_country_attribute;
                 $product->set_attributes($attributes);
                 $updated = true;
@@ -1967,7 +1856,7 @@ function hts_sync_to_dutify($product_id)
             }
         }
     }
-
+    
     if ($updated) {
         // Use try-catch to handle potential save errors
         try {
@@ -1975,9 +1864,9 @@ function hts_sync_to_dutify($product_id)
             remove_action('woocommerce_process_product_meta', 'hts_save_product_data_fields');
             remove_action('transition_post_status', 'hts_auto_classify_on_publish', 10);
             remove_action('save_post_product', 'hts_auto_classify_on_save', 10);
-
+            
             $product->save();
-
+            
             // Re-add hooks
             add_action('woocommerce_process_product_meta', 'hts_save_product_data_fields');
             add_action('transition_post_status', 'hts_auto_classify_on_publish', 10, 3);
@@ -1987,23 +1876,24 @@ function hts_sync_to_dutify($product_id)
             return false;
         }
     }
-
+    
     return $updated;
 }
 
-// Hook into various save/import processes for Dutify sync
+// Hook into Python import process
 add_action('hts_code_imported', 'hts_sync_to_dutify');
+
+// Also sync when updating via WooCommerce API (for Python scripts)
 add_action('woocommerce_api_edit_product', 'hts_check_api_update_for_sync', 10, 2);
 add_action('woocommerce_rest_insert_product', 'hts_check_rest_api_sync', 10, 2);
 
-function hts_check_api_update_for_sync($id, $data)
-{
+function hts_check_api_update_for_sync($id, $data) {
     // Validate product ID
     $id = absint($id);
     if (!$id) {
         return;
     }
-
+    
     if (isset($data['meta_data']) && is_array($data['meta_data'])) {
         foreach ($data['meta_data'] as $meta) {
             if (isset($meta['key']) && $meta['key'] === '_hts_code' && !empty($meta['value'])) {
@@ -2018,20 +1908,19 @@ function hts_check_api_update_for_sync($id, $data)
     }
 }
 
-function hts_check_rest_api_sync($post, $request)
-{
+function hts_check_rest_api_sync($post, $request) {
     // Validate post object and ID
     if (!is_object($post) || !isset($post->ID)) {
         return;
     }
-
+    
     $product_id = absint($post->ID);
     if (!$product_id) {
         return;
     }
-
+    
     $params = $request->get_params();
-
+    
     if (isset($params['meta_data']) && is_array($params['meta_data'])) {
         foreach ($params['meta_data'] as $meta) {
             if (isset($meta['key']) && $meta['key'] === '_hts_code' && !empty($meta['value'])) {

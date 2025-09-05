@@ -1,0 +1,223 @@
+/* Common Styles */
+.woo-vpf-ymm-clearfix {
+	clear:both;
+	float:none;
+	width:100%;
+}
+
+.woo-vpf-ymm-processing {
+	opacity:0.6;
+}
+
+.woo-vpf-ymm-processing, .woo-vpf-ymm-processing * {
+	cursor:wait;
+}
+
+.woo-vpf-ymm-hidden {
+	display:none !important; /* !important required for QuiCk Edit SLUG option */
+}
+
+.woo-vpf-ymm-text-center {
+	text-align:center !important;
+}
+
+/* Settings Page */
+.woocommerce_page_wc-settings .woocommerce table.form-table th {
+	width:250px;
+}
+
+.woo-vpf-ymm-section-title {
+	cursor:pointer;
+	font-weight:bold;
+	margin:0;
+	padding:10px;
+	background:#DDD;
+}
+
+.woo-vpf-ymm-section-title .handlediv {
+    display: block;
+	color:#72777c;
+    background: transparent;
+    border: 0 none;
+    cursor: pointer;
+    float: right;
+	width: 36px;
+	height: auto;
+    margin: -4px 0 0;
+    padding: 0;
+}
+
+.woo-vpf-ymm-section-title .handlediv .toggle-indicator::before {
+    content: "";
+	display: inline-block;
+    width: 20px;
+    font: 400 20px/1 dashicons;
+	text-decoration: none !important;
+	border-radius: 50%;
+    margin-top: 4px;
+    text-indent: -1px;
+}
+
+.woo-vpf-ymm-section-title .handlediv:focus .toggle-indicator::before {
+	box-shadow: 0 0 0 1px #5b9dd9, 0 0 2px 1px rgba(30, 140, 190, 0.8);
+}
+
+.closed .woo-vpf-ymm-section-title .handlediv .toggle-indicator::before {
+	content: "";
+}
+
+.woocommerce table.form-table .woo_vpf_ymm_chosen_settings .select2-container {
+	max-width:98%;
+}
+
+/* Terms Meta Box */
+.woo-vpf-ymm-form-container .woo-vpf-ymm-remove-term-rows {
+	float:right;;
+	margin:10px 0 15px;
+}
+
+.woo-vpf-ymm-form-container .woo-vpf-ymm-terms-table-container {
+	display:block;
+	clear:both;
+	max-height:500px;
+	overflow:auto;
+}
+
+.woo-vpf-ymm-form-table thead th {
+	border-bottom:1px dotted #666;
+}
+
+.woo-vpf-ymm-form-table tfoot th {
+	border-top:1px dotted #666;
+}
+
+.woo-vpf-ymm-form-table th, .woo-vpf-ymm-form-table td {
+	padding:5px 5px 5px 0;
+}
+
+.woo-vpf-ymm-form-table select, .woo-vpf-ymm-form-table input[type="text"] {
+	width:100%;
+}
+
+.woo-vpf-ymm-form-table .woo-vpf-ymm-term-actions a {
+	display:inline-block;
+	width:16px;
+	height:16px;
+	line-height:16px;
+	border:none;
+	padding:0;
+	margin:1px;
+	font-size:0;
+}
+
+.postbox a.woo-vpf-ymm-add-term-row {
+	display:inline-block;
+	background:url('../../images/icon-add.png');
+	width:16px;
+	height:16px;
+	line-height:16px;
+	border:none;
+	padding:0;
+	font-size:0;
+	cursor:pointer;
+	position:absolute;
+	margin:2px 0 0 10px;
+}
+
+.woo-vpf-ymm-form-table .woo-vpf-ymm-remove-term-row {
+	background:url('../../images/icon-remove.png');
+}
+
+/* Common Form Style */
+.woo-vpf-ymm-form-container {
+	display:block;
+	padding:0;
+}
+
+.woo-vpf-ymm-form-container h3 {
+	font-size: 14px;
+	line-height: 1.4;
+	margin: 0;
+	padding: 8px 12px;
+	border-bottom: 1px solid #eee;
+}
+
+.woo-vpf-ymm-form-container .woo-vpf-ymm-term-box {
+	padding: 12px 8px 12px;
+}
+
+.woo-vpf-ymm-form-container .woo-vpf-ymm-term-row {
+	margin:0 0 12px 0;
+	padding:0;
+	text-align:center;	
+}
+
+/* Terms List Page Style */
+.woo-vpf-ymm-terms-delete-form {
+	display:block;
+	text-align:right;
+}
+
+/* Add/Edit Terms Form */
+.taxonomy-product_ymm #addtag .form-field, .taxonomy-product_ymm #edittag .form-field {
+	display:none;
+}
+
+.taxonomy-product_ymm #addtag div.form-field.term-name-wrap, .taxonomy-product_ymm #edittag div.form-field.term-name-wrap {
+	display:block;
+}
+
+.taxonomy-product_ymm #addtag tr.form-field.term-name-wrap, .taxonomy-product_ymm #edittag tr.form-field.term-name-wrap {
+	display:table-row;
+}
+
+/* Add/Search Terms Form */
+.taxonomy-product_ymm #col-left, .taxonomy-product_ymm #col-right {
+	width:100%;
+	float:none;
+	clear:both;
+}
+
+.taxonomy-product_ymm #col-left .form-wrap {
+	float:left;
+	width: 350px;
+	background: #fff;
+	border:1px solid #e5e5e5;
+	margin: 25px auto;
+	border-radius:5px;
+}
+
+.taxonomy-product_ymm #col-left .form-wrap.woo-vpf-ymm-search-form-container {
+	float:right;
+}
+
+.taxonomy-product_ymm #col-left .form-wrap h2 {
+	border-bottom: 1px solid #eee;
+	font-size: 14px;
+	line-height: 1.4;
+	margin: 0;
+	padding: 8px 12px;
+}
+
+.taxonomy-product_ymm #col-left .form-wrap form {
+	padding:0 15px;
+}
+
+.taxonomy-product_ymm .form-wrap input[type="text"], .taxonomy-product_ymm .form-wrap select {
+	width:100%;
+	margin:0;
+}
+
+.taxonomy-product_ymm .form-wrap .submit {
+	padding-bottom:10px;
+}
+
+/* Search Terms Form */
+.taxonomy-product_ymm .search-form, .taxonomy-product_ymm .subtitle {
+	display:none;
+}
+
+/* WPML */
+.taxonomy-product_ymm #dashboard-widgets, .taxonomy-product_ymm #dashboard-widgets {
+	display:none;
+}

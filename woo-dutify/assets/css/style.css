@@ -1,0 +1,467 @@
+/* VPF Widget */
+.woo-vpf-ymm-hidden {
+	display:none !important; /* !important required for QuiCk Edit SLUG option */
+}
+
+.woo-vpf-ymm-processing {
+	opacity:0.6;
+}
+
+.woo-vpf-ymm-clearfix {
+	clear:both;
+	float:none;
+}
+
+.woo-vpf-ymm-processing, .woo-vpf-ymm-processing * {
+	cursor:wait;
+}
+
+.woo-vpf-ymm-error, .woo-vpf-ymm-error * {
+	color: red;
+}
+
+.woo-vpf-ymm-error .chosen-container-single .chosen-single,
+.woo-vpf-ymm-error input[type="text"],
+.woo-vpf-ymm-error select {
+	border-color:red;
+}
+
+.woo-vpf-ymm-field {
+	position:relative;
+}
+
+.woo-vpf-ymm-field select, .woo-vpf-ymm-field input {
+	margin:0;
+	width:100%;
+}
+
+.woo-vpf-ymm-field .chosen-container {
+	width:100% !important;
+}
+
+.woo-vpf-ymm-field input[type="submit"] {
+	width:auto;
+	margin:0 auto;
+	display:block;
+	cursor:pointer;
+}
+
+.widget-woo-vpf-ymm-filter * {
+	box-sizing:border-box;
+}
+
+.woo-vpf-ymm-filter-horizontal .woo-vpf-ymm-field {
+	float:left;
+	width:auto;
+	margin: 0 10px 5px 0;
+}
+
+.woo-vpf-ymm-filter-horizontal .woo-vpf-ymm-field.woo-vpf-ymm-field-submit {
+	margin:0;
+}
+
+.woo-vpf-ymm-filter-vertical .woo-vpf-ymm-field {
+	display:block;
+	width:100%;
+	margin: 0 0 10px 0;
+}
+
+.widget-woo-vpf-ymm-filter .woo-vpf-ymm-field select:disabled {
+	opacity:0.6;
+}
+
+.woo-vpf-ymm-field .woo-vpf-ymm-reset-search {
+	font-size: 0.8em;
+    font-weight: bold;
+}
+
+.woo-vpf-ymm-filter-vertical .woo-vpf-ymm-field .woo-vpf-ymm-reset-search {
+	position: absolute;
+	top: 0;
+	right: 0;
+}
+
+.woo-vpf-ymm-filter-horizontal .woo-vpf-ymm-field .woo-vpf-ymm-reset-search {
+	margin:5px 0;
+}
+
+/* Product Details Page VPF Tab */
+.woo-vpf-ymm-product-tab table {
+	width:100%;
+}
+
+.woo-vpf-ymm-product-tab thead th, .woo-vpf-ymm-product-tab tfoot th {
+	font-weight:bold;
+	font-size:15px;
+	padding:0;
+}
+
+.woo-vpf-ymm-product-tab thead th {
+	padding-bottom:5px;
+	border-bottom:1px #e0dede dotted;
+}
+
+.woo-vpf-ymm-product-tab tfoot th {
+	padding-top:5px;
+	border-bottom:none;
+}
+
+.woo-vpf-ymm-product-tab td {
+	padding:5px 0;
+	border-bottom:1px #e0dede dotted;
+}
+
+.woo-vpf-ymm-product-tab .woo-vpf-ymm-product-terms-loading {
+	text-align:center;
+}
+
+/* My Vehicles */
+.woo-vpf-ymm-loader {
+	background: rgba(0, 0, 0, 0.1) url("../images/ajax-loader.gif") no-repeat scroll 50% 50%;
+	display: none;
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	left: 0;
+	top: 0;
+	z-index: 22;
+}
+
+.woo-vpf-ymm-mv-container * {
+	box-sizing:border-box;
+}
+
+.woo-vpf-ymm-mv-container {
+	display:block;
+	position:relative;
+	text-align:left;
+	clear:both;
+	line-height:normal;
+	max-width:600px;
+}
+
+.woo-vpf-ymm-mv-container > .mv-header {
+	position: relative;
+	cursor:pointer;
+}
+
+.woo-vpf-ymm-mv-container > .mv-header::after {
+	background: url("../images/icons-sprite.png") no-repeat scroll -278px 0;
+	content: "";
+	width: 10px;
+	height: 6px;
+	margin-top: -2px;
+	position: absolute;
+	right: 0;
+	top: 50%;
+}
+
+.woo-vpf-ymm-mv-container > .mv-header:hover::after {
+	background-position: -278px -39px;
+}
+
+.woo-vpf-ymm-mv-container > .mv-header .mv-icon {
+	background: url("../images/icons-sprite.png") no-repeat scroll -137px 0;
+	width:auto;
+	height:16px;
+	padding:0 0 0 21px;
+	margin:0 5px 0 0;
+	position:relative;
+	display:inline-block;
+	vertical-align: middle;
+}
+
+.woo-vpf-ymm-mv-container > .mv-header:hover .mv-icon {
+	background-position: -137px -39px;
+}
+
+.woo-vpf-ymm-mv-container > .mv-header .mv-icon .mv-counter {
+	background-color: #7ea94c;
+	color: #fff;
+	border-radius: 2px;
+    position: absolute;
+	top: -6px;
+	right: -4px;
+    min-width: 10px;
+    padding: 0 2px;
+    text-align: center;
+	vertical-align:middle;
+	font-size: 8px;
+    font-weight: bold;
+    line-height: 1.5;
+}
+
+.woo-vpf-ymm-mv-container > .mv-header:hover .mv-icon .mv-counter {
+	background: #ce4e45;
+}
+
+.woo-vpf-ymm-mv-container > .mv-header .mv-title {
+	font-size:0.9em;
+	font-weight:bold;
+	display: inline-block;
+	vertical-align: middle;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner {
+	position:relative;
+	display:block;	
+	background: #fff;
+	border: 1px solid #ddd;
+	border-radius: 2px;
+	box-shadow: 2px 2px 2px rgba(0, 0, 0, 0.2);
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section {
+	padding:10px;
+	border-top:1px solid #ddd;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section:first-child {
+	border-top:none;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section-vehicles-saved {
+	background:#ffffff;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section-vehicles-history {
+	background:#f3f3f3;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section .mv-header {
+	position:relative;
+	width: 100%;
+	padding:0 35px 10px 0;				
+	color: #8c8c8c;
+	margin-bottom: 15px;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section .mv-header:after {
+	background: url("../images/icons-sprite.png") no-repeat scroll 0 0;
+    border-bottom: 1px solid #f3f3f3;
+    content: "";
+    width: 30px;
+	height: 30px;
+    position: absolute;
+    right: 0;
+    top: 0;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section-vehicles-saved .mv-header:after {
+	background-position: 0 0;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section-vehicles-history .mv-header:after {
+	background-position: -70px 0;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section .mv-header .mv-title {
+	font-size:0.9em;
+	font-weight:600;
+	padding:0 0 5px 0;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section .mv-header .mv-description {
+	font-size:0.8em;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items .mv-no-item {
+	font-size: 1em;
+	text-align: center;
+	color: #ce4e45;
+	font-weight: bold;
+	margin:0 0 10px 0;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul {
+	display: table;
+	color: #393939;
+	font-weight: 700;
+	font-size:1em;
+	width: 100%;
+	padding:0 10px;
+	margin:0;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li {
+	display: table-row;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-col {
+	display: table-cell;
+	padding: 0 0 15px 0;
+	vertical-align: middle;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-title label {
+	display: inline-block;
+	vertical-align: middle;	
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-title label .mv-item-radio {
+	background: url("../images/icons-sprite.png") no-repeat scroll -226px 0;
+	cursor: pointer;
+	width: 16px;
+	height: 16px;
+	float: left;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li.mv-active .mv-item-title label .mv-item-radio,
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-title label .mv-item-radio:hover {
+	background-position:-226px -39px;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-title label b {
+	float: left;
+	font-weight:600;
+	padding: 0 0 0 10px;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-actions {
+	width:65px;
+	text-align:right;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-col .mv-lnk {
+	background: url("../images/icons-sprite.png") no-repeat scroll 0 0;
+	display:inline-block;
+	vertical-align: middle;
+	cursor: pointer;
+	width:16px;
+	height:16px;
+	margin:0 2px 0 0;
+	padding:0;
+	font-size:0;
+	background-repeat:no-repeat;
+	background-position:0 0;
+	text-decoration: none;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-col .mv-lnk:last-child {
+	margin-right:0;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-col .mv-lnk:hover {
+	text-decoration: none;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-col .mv-lnk.mv-lnk-disable {
+	cursor: default;
+	opacity: 0.2;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-col .mv-lnk.mv-lnk-save {
+	background-position: -205px 0;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-col .mv-lnk.mv-lnk-save:hover {
+	background-position: -205px -39px;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-col .mv-lnk.mv-lnk-browse {
+	background-position: -163px 0;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-col .mv-lnk.mv-lnk-browse:hover {
+	background-position: -163px -39px;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-col .mv-lnk.mv-lnk-delete {
+	background-position: -185px 0;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-items ul li .mv-item-col .mv-lnk.mv-lnk-delete:hover {
+	background-position: -185px -39px;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section .mv-actions {
+	padding:10px 0 0 0;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section-vehicles-saved .mv-actions {
+	border-top:1px solid #f3f3f3;
+}
+
+.woo-vpf-ymm-mv-container .mv-inner .mv-section-vehicles-history .mv-actions {
+	border-top:1px solid #e2e2e2;
+}
+
+.woo-vpf-ymm-mv-container .mv-add-vehicle, .woo-vpf-ymm-mv-container .mv-clear-history {
+	color: #a4a4a4;
+	cursor: pointer;
+	display: inline-block;
+	font-size:0.9em;
+	font-weight: 600;
+	margin:0;
+	padding:0;
+}
+
+.woo-vpf-ymm-mv-container .mv-add-vehicle {
+	float:left;
+}
+
+.woo-vpf-ymm-mv-container .mv-clear-history {
+	float:right;
+}
+
+.woo-vpf-ymm-mv-container .mv-add-vehicle:before, .woo-vpf-ymm-mv-container .mv-clear-history:before {
+	background: url("../images/icons-sprite.png") no-repeat scroll 0 0;
+    content: "";
+    width: 10px;
+    height: 10px;
+    margin: 3px 3px 0 0;
+    float:left;
+}
+
+.woo-vpf-ymm-mv-container .mv-add-vehicle:before {
+	background-position: -247px 0;
+}
+
+.woo-vpf-ymm-mv-container .mv-add-vehicle:hover:before {
+	background-position: -247px -39px;
+}
+
+.woo-vpf-ymm-mv-container .mv-clear-history:before {
+	background-position: -262px 0;
+}
+
+.woo-vpf-ymm-mv-container .mv-clear-history:hover:before {
+	background-position: -262px -39px;
+}
+
+.woo-vpf-ymm-mv-container.mv-has-expandable-wrapper .mv-inner, .woo-vpf-ymm-mv-container.mv-has-flyout-wrapper .mv-inner {
+	display:none;
+	margin:15px 0 0 0;
+}
+
+.woo-vpf-ymm-mv-container.mv-has-flyout-wrapper .mv-inner {
+	position:absolute;
+	z-index:999;
+	min-width:450px;
+	width:100%;
+}
+
+/* Pop Up */
+#cboxTitle {
+	font-size:0.9em;
+	font-weight:bold;
+}
+
+#colorbox, #cboxOverlay, #cboxWrapper, #cboxLoadedContent {
+	overflow:visible !important;
+}
+
+.woo-vpf-ymm-modal {
+	padding:20px 10px 10px;
+}
+
+.woo-vpf-ymm-modal .woo-vpf-ymm-modal-desc p {
+	padding:0;
+	margin:0 0 10px 0;
+	font-size:1em;
+	line-height:noamrl;
+}
+
+.woo-vpf-ymm-modal .woo-vpf-ymm-field.woo-vpf-ymm-field-submit {
+	margin-bottom:0;
+}
