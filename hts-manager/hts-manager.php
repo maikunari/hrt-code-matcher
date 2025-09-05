@@ -228,20 +228,20 @@ function hts_add_product_data_fields()
         // Dutify sync status display - INSIDE the HTS panel
         if (class_exists('WOO_Dutify')) {
             $product_id = $post->ID;
-            
+
             // Get Dutify attribute values
             $dutify_hs = wc_get_product_terms($product_id, 'pa_dutify_hs_code', array('fields' => 'names'));
             $dutify_country = wc_get_product_terms($product_id, 'pa_dutify_country_origin', array('fields' => 'names'));
             $dutify_hs_country = wc_get_product_terms($product_id, 'pa_dutify_hs_code_country', array('fields' => 'names'));
-            
+
             $dutify_hs_value = $dutify_hs ? array_shift($dutify_hs) : null;
             $dutify_country_value = $dutify_country ? array_shift($dutify_country) : null;
             $dutify_hs_country_value = $dutify_hs_country ? array_shift($dutify_hs_country) : null;
-            
+
             // Determine sync status
             $expected_hs = preg_replace('/[^0-9]/', '', $hts_code);
             $expected_country = strtoupper(substr($country_of_origin ?: 'CA', 0, 2));
-            
+
             $hs_synced = ($dutify_hs_value === $expected_hs);
             $country_synced = ($dutify_country_value === $expected_country);
             $all_synced = $hs_synced && $country_synced && $dutify_hs_country_value;
@@ -254,14 +254,14 @@ function hts_add_product_data_fields()
                     <table style="width: 90%; margin: 0 10px;">
                         <tr>
                             <td><strong>HTS Code:</strong></td>
-                            <td><?php echo $hs_synced 
-                                ? '<span style="color: green;">✅ ' . esc_html($dutify_hs_value) . '</span>' 
+                            <td><?php echo $hs_synced
+                                ? '<span style="color: green;">✅ ' . esc_html($dutify_hs_value) . '</span>'
                                 : '<span style="color: red;">❌ Not synced</span>'; ?></td>
                         </tr>
                         <tr>
                             <td><strong>Country:</strong></td>
-                            <td><?php echo $country_synced 
-                                ? '<span style="color: green;">✅ ' . esc_html($dutify_country_value) . '</span>' 
+                            <td><?php echo $country_synced
+                                ? '<span style="color: green;">✅ ' . esc_html($dutify_country_value) . '</span>'
                                 : '<span style="color: red;">❌ Not synced</span>'; ?></td>
                         </tr>
                     </table>
@@ -496,7 +496,7 @@ function hts_save_product_data_fields($post_id)
         $country = sanitize_text_field($_POST['_country_of_origin']);
         $old_country = get_post_meta($post_id, '_country_of_origin', true);
         update_post_meta($post_id, '_country_of_origin', $country);
-        
+
         // Sync to Dutify if country changed or if HTS code exists
         if ($country !== $old_country && !empty($hts_code)) {
             hts_sync_to_dutify($post_id);
@@ -2078,7 +2078,7 @@ function hts_product_save_notices()
 function hts_sync_to_dutify($product_id)
 {
     error_log('HTS Dutify Sync: Starting sync for product ID ' . $product_id);
-    
+
     // Validate product ID
     $original_product_id = absint($product_id);
     if (!$original_product_id) {
@@ -2095,7 +2095,7 @@ function hts_sync_to_dutify($product_id)
     // Check if this is a variation and get parent ID if needed
     $post_type = get_post_type($original_product_id);
     $dutify_product_id = $original_product_id; // ID to sync to Dutify
-    
+
     if ($post_type === 'product_variation') {
         // This is a variation, get the parent product ID for Dutify
         $parent_id = wp_get_post_parent_id($original_product_id);
@@ -2140,16 +2140,16 @@ function hts_sync_to_dutify($product_id)
     // Sync HS Code attribute
     if (taxonomy_exists('pa_dutify_hs_code')) {
         error_log('HTS Dutify Sync: pa_dutify_hs_code taxonomy exists');
-        
+
         // Remove dots and clean the HTS code (be more flexible with format)
         $clean_hs_code = preg_replace('/[^0-9]/', '', $hts_code);
-        
+
         // Check if it's at least 6 digits (minimum for a valid HTS code)
         if (strlen($clean_hs_code) < 6) {
             error_log('HTS Dutify Sync: HTS code too short: ' . $hts_code);
             return false;
         }
-        
+
         // Pad to 10 digits if needed (some codes might be 8 digits)
         if (strlen($clean_hs_code) < 10) {
             $clean_hs_code = str_pad($clean_hs_code, 10, '0', STR_PAD_RIGHT);
@@ -2307,17 +2307,18 @@ add_action('woocommerce_rest_insert_product', 'hts_check_rest_api_sync', 10, 2);
 
 // AJAX handler for testing Dutify sync
 add_action('wp_ajax_test_dutify_sync', 'hts_ajax_test_dutify_sync');
-function hts_ajax_test_dutify_sync() {
+function hts_ajax_test_dutify_sync()
+{
     if (!check_ajax_referer('test_dutify_sync', '_wpnonce', false)) {
         wp_die('Security check failed');
     }
-    
+
     $product_id = intval($_POST['product_id']);
-    
+
     // Enable error reporting for this request
     error_reporting(E_ALL);
     ini_set('display_errors', 1);
-    
+
     $response = array(
         'product_id' => $product_id,
         'hts_code' => get_post_meta($product_id, '_hts_code', true),
@@ -2325,46 +2326,47 @@ function hts_ajax_test_dutify_sync() {
         'dutify_class_exists' => class_exists('WOO_Dutify'),
         'taxonomy_exists' => taxonomy_exists('pa_dutify_hs_code'),
     );
-    
+
     // Try to sync
     if (function_exists('hts_sync_to_dutify')) {
         $response['sync_result'] = hts_sync_to_dutify($product_id);
     } else {
         $response['sync_result'] = 'Function not found';
     }
-    
+
     // Check result
     $dutify_hs = wc_get_product_terms($product_id, 'pa_dutify_hs_code', array('fields' => 'names'));
     $response['dutify_hs_after'] = $dutify_hs ? implode(', ', $dutify_hs) : 'NOT SET';
-    
+
     wp_send_json($response);
 }
 
 // AJAX handler for bulk Dutify sync
 add_action('wp_ajax_bulk_sync_dutify', 'hts_ajax_bulk_sync_dutify');
-function hts_ajax_bulk_sync_dutify() {
+function hts_ajax_bulk_sync_dutify()
+{
     if (!check_ajax_referer('bulk_sync_dutify', '_wpnonce', false)) {
         wp_send_json_error(array('message' => 'Security check failed'));
         return;
     }
-    
+
     $products = isset($_POST['products']) ? array_map('intval', $_POST['products']) : array();
     $batch = intval($_POST['batch']);
     $total_batches = intval($_POST['total_batches']);
-    
+
     if (empty($products)) {
         wp_send_json_error(array('message' => 'No products provided'));
         return;
     }
-    
+
     $synced = 0;
     $errors = 0;
     $messages = array();
-    
+
     // Disable error logging temporarily to avoid clutter
     $original_log_errors = ini_get('log_errors');
     ini_set('log_errors', 0);
-    
+
     foreach ($products as $product_id) {
         $product = wc_get_product($product_id);
         if (!$product) {
@@ -2372,34 +2374,34 @@ function hts_ajax_bulk_sync_dutify() {
             $messages[] = "❌ Product ID $product_id not found";
             continue;
         }
-        
+
         $product_name = $product->get_name();
         $product_type = $product->get_type();
-        
+
         // Skip variable products (parent products) - only sync simple products and variations
         if ($product_type === 'variable') {
             // Variable products don't have their own HTS codes - their variations do
             $messages[] = "⏭️ " . $product_name . " - Skipped (variable product parent)";
             continue;
         }
-        
+
         $hts_code = get_post_meta($product_id, '_hts_code', true);
         if (empty($hts_code) || $hts_code === '9999.99.9999') {
             $errors++;
             $messages[] = "⚠️ " . $product_name . " - No valid HTS code";
             continue;
         }
-        
+
         // Try to sync with better error capture
         try {
             $result = hts_sync_to_dutify($product_id);
             if ($result === true) {
                 $synced++;
-                
+
                 // Verify sync actually worked
                 $dutify_hs = wc_get_product_terms($product_id, 'pa_dutify_hs_code', array('fields' => 'names'));
                 $synced_code = $dutify_hs ? array_shift($dutify_hs) : null;
-                
+
                 if ($synced_code) {
                     $messages[] = "✅ " . $product_name . " - Synced (HTS: " . $synced_code . ")";
                 } else {
@@ -2407,10 +2409,10 @@ function hts_ajax_bulk_sync_dutify() {
                 }
             } else {
                 $errors++;
-                
+
                 // Try to get more specific error info
                 $error_reason = "Unknown error";
-                
+
                 // Check if it's a taxonomy issue
                 if (!taxonomy_exists('pa_dutify_hs_code')) {
                     $error_reason = "Dutify taxonomy missing";
@@ -2422,7 +2424,7 @@ function hts_ajax_bulk_sync_dutify() {
                         $error_reason = "Invalid HTS format: " . $hts_code;
                     }
                 }
-                
+
                 $messages[] = "❌ " . $product_name . " - Sync failed (" . $error_reason . ")";
             }
         } catch (Exception $e) {
@@ -2430,12 +2432,12 @@ function hts_ajax_bulk_sync_dutify() {
             $messages[] = "❌ " . $product_name . " - Error: " . $e->getMessage();
         }
     }
-    
+
     // Restore error logging
     ini_set('log_errors', $original_log_errors);
-    
+
     $messages[] = "Batch $batch of $total_batches completed: $synced synced, $errors errors";
-    
+
     wp_send_json_success(array(
         'synced' => $synced,
         'errors' => $errors,
