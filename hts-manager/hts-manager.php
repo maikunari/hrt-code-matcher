@@ -1115,18 +1115,6 @@ function hts_manager_settings_page()
                 This plugin handles HTS code display, auto-classification, and ShipStation integration.</p>
         </div>
         
-        <?php
-        // Debug section - remove after testing
-        if (current_user_can('manage_options')) {
-            $check_url = add_query_arg('check_dutify', '1', home_url());
-            echo '<div class="notice notice-warning">';
-            echo '<p><strong>🔧 Debug Tools:</strong><br>';
-            echo '• <a href="' . esc_url($check_url) . '" target="_blank">Check Dutify Taxonomies</a> - See if Dutify attributes exist<br>';
-            echo '• Dutify Plugin: ' . (class_exists('WOO_Dutify') ? '✅ Active' : '❌ Not Active') . '<br>';
-            echo '• pa_dutify_hs_code taxonomy: ' . (taxonomy_exists('pa_dutify_hs_code') ? '✅ Exists' : '❌ Missing') . '</p>';
-            echo '</div>';
-        }
-        ?>
         
         <?php if (empty($api_key)) : ?>
         <div class="notice notice-warning">
