@@ -224,6 +224,73 @@ function hts_add_product_data_fields()
             </p>
         </div>
         
+        <?php
+        // Dutify sync status display - INSIDE the HTS panel
+        if (class_exists('WOO_Dutify')) {
+            $product_id = $post->ID;
+            
+            // Get Dutify attribute values
+            $dutify_hs = wc_get_product_terms($product_id, 'pa_dutify_hs_code', array('fields' => 'names'));
+            $dutify_country = wc_get_product_terms($product_id, 'pa_dutify_country_origin', array('fields' => 'names'));
+            $dutify_hs_country = wc_get_product_terms($product_id, 'pa_dutify_hs_code_country', array('fields' => 'names'));
+            
+            $dutify_hs_value = $dutify_hs ? array_shift($dutify_hs) : null;
+            $dutify_country_value = $dutify_country ? array_shift($dutify_country) : null;
+            $dutify_hs_country_value = $dutify_hs_country ? array_shift($dutify_hs_country) : null;
+            
+            // Determine sync status
+            $expected_hs = preg_replace('/[^0-9]/', '', $hts_code);
+            $expected_country = strtoupper(substr($country_of_origin ?: 'CA', 0, 2));
+            
+            $hs_synced = ($dutify_hs_value === $expected_hs);
+            $country_synced = ($dutify_country_value === $expected_country);
+            $all_synced = $hs_synced && $country_synced && $dutify_hs_country_value;
+            ?>
+            
+            <div class="options_group" style="background: #f8f9fa;">
+                <h4 style="margin: 10px;">🔄 Dutify Sync Status</h4>
+                
+                <?php if (!empty($hts_code)) : ?>
+                    <table style="width: 90%; margin: 0 10px;">
+                        <tr>
+                            <td><strong>HTS Code:</strong></td>
+                            <td><?php echo $hs_synced 
+                                ? '<span style="color: green;">✅ ' . esc_html($dutify_hs_value) . '</span>' 
+                                : '<span style="color: red;">❌ Not synced</span>'; ?></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Country:</strong></td>
+                            <td><?php echo $country_synced 
+                                ? '<span style="color: green;">✅ ' . esc_html($dutify_country_value) . '</span>' 
+                                : '<span style="color: red;">❌ Not synced</span>'; ?></td>
+                        </tr>
+                    </table>
+                    
+                    <?php if ($all_synced) : ?>
+                        <p style="margin: 10px; color: green;">
+                            <strong>✅ Ready for Dutify checkout!</strong>
+                        </p>
+                    <?php else : ?>
+                        <p style="margin: 10px; color: #d63638;">
+                            <strong>⚠️ Not synced to Dutify</strong>
+                        </p>
+                    <?php endif; ?>
+                    
+                    <!-- Test button for debugging -->
+                    <p style="margin: 10px;">
+                        <button type="button" class="button" id="dutify-sync-btn">Test Sync Now</button>
+                        <span id="sync-result" style="margin-left: 10px;"></span>
+                    </p>
+                <?php else : ?>
+                    <p style="margin: 10px; color: #666;">
+                        No HTS code set yet.
+                    </p>
+                <?php endif; ?>
+            </div>
+            <?php
+        }
+        ?>
+        
     </div>
     
     <script type="text/javascript">
@@ -369,6 +436,35 @@ function hts_add_product_data_fields()
             } else if (!hasCode && $('#hts_regenerate_link').length) {
                 $('#hts_regenerate_link').remove();
             }
+        });
+    });
+    
+    // Dutify sync button handler
+    jQuery(document).ready(function($) {
+        $('#dutify-sync-btn').on('click', function() {
+            var button = $(this);
+            button.prop('disabled', true).text('Syncing...');
+            $('#sync-result').text('');
+            
+            $.post(ajaxurl, {
+                action: 'test_dutify_sync',
+                product_id: <?php echo $post->ID; ?>,
+                _wpnonce: '<?php echo wp_create_nonce('test_dutify_sync'); ?>'
+            }, function(response) {
+                console.log('Sync Response:', response);
+                button.prop('disabled', false).text('Test Sync Now');
+                
+                if (response.sync_result === true) {
+                    $('#sync-result').html('<span style="color: green;">✅ Sync successful! Reloading...</span>');
+                    setTimeout(function() { location.reload(); }, 1500);
+                } else {
+                    $('#sync-result').html('<span style="color: red;">❌ Sync failed - check console</span>');
+                }
+            }).fail(function(xhr, status, error) {
+                console.error('AJAX Error:', error);
+                button.prop('disabled', false).text('Test Sync Now');
+                $('#sync-result').html('<span style="color: red;">❌ Error: ' + error + '</span>');
+            });
         });
     });
     </script>
@@ -1018,6 +1114,19 @@ function hts_manager_settings_page()
             <p><strong>Complete HTS Management System</strong> - 
                 This plugin handles HTS code display, auto-classification, and ShipStation integration.</p>
         </div>
+        
+        <?php
+        // Debug section - remove after testing
+        if (current_user_can('manage_options')) {
+            $check_url = add_query_arg('check_dutify', '1', home_url());
+            echo '<div class="notice notice-warning">';
+            echo '<p><strong>🔧 Debug Tools:</strong><br>';
+            echo '• <a href="' . esc_url($check_url) . '" target="_blank">Check Dutify Taxonomies</a> - See if Dutify attributes exist<br>';
+            echo '• Dutify Plugin: ' . (class_exists('WOO_Dutify') ? '✅ Active' : '❌ Not Active') . '<br>';
+            echo '• pa_dutify_hs_code taxonomy: ' . (taxonomy_exists('pa_dutify_hs_code') ? '✅ Exists' : '❌ Missing') . '</p>';
+            echo '</div>';
+        }
+        ?>
         
         <?php if (empty($api_key)) : ?>
         <div class="notice notice-warning">
@@ -1803,14 +1912,18 @@ function hts_product_save_notices()
  */
 function hts_sync_to_dutify($product_id)
 {
+    error_log('HTS Dutify Sync: Starting sync for product ID ' . $product_id);
+    
     // Validate product ID
     $product_id = absint($product_id);
     if (!$product_id) {
+        error_log('HTS Dutify Sync: Invalid product ID');
         return false;
     }
 
     // Check if Dutify plugin is active
     if (!class_exists('WOO_Dutify')) {
+        error_log('HTS Dutify Sync: WOO_Dutify class not found - plugin may not be active');
         return false;
     }
 
@@ -1851,8 +1964,10 @@ function hts_sync_to_dutify($product_id)
 
     // Sync HS Code attribute
     if (taxonomy_exists('pa_dutify_hs_code')) {
+        error_log('HTS Dutify Sync: pa_dutify_hs_code taxonomy exists');
         // Validate HTS code format before processing
         if (!preg_match('/^\d{4}\.\d{2}\.\d{4}$/', $hts_code)) {
+            error_log('HTS Dutify Sync: Invalid HTS code format: ' . $hts_code);
             return false;
         }
 
@@ -1867,7 +1982,13 @@ function hts_sync_to_dutify($product_id)
         // Create or get the term - use the clean code directly as term name
         $term = term_exists($clean_hs_code, 'pa_dutify_hs_code');
         if (!$term) {
+            error_log('HTS Dutify Sync: Creating new term: ' . $clean_hs_code);
             $term = wp_insert_term($clean_hs_code, 'pa_dutify_hs_code');
+            if (is_wp_error($term)) {
+                error_log('HTS Dutify Sync: Error creating term: ' . $term->get_error_message());
+            }
+        } else {
+            error_log('HTS Dutify Sync: Term already exists: ' . $clean_hs_code);
         }
 
         if (!is_wp_error($term)) {
@@ -1876,7 +1997,12 @@ function hts_sync_to_dutify($product_id)
             if (!$term_id || $term_id < 1) {
                 return false;
             }
-            wp_set_object_terms($product_id, intval($term_id), 'pa_dutify_hs_code');
+            $result = wp_set_object_terms($product_id, intval($term_id), 'pa_dutify_hs_code');
+            if (is_wp_error($result)) {
+                error_log('HTS Dutify Sync: Error setting object terms: ' . $result->get_error_message());
+            } else {
+                error_log('HTS Dutify Sync: Successfully set term ' . $clean_hs_code . ' for product ' . $product_id);
+            }
 
             // Also update the product attribute
             try {
@@ -1896,6 +2022,8 @@ function hts_sync_to_dutify($product_id)
             }
             $updated = true;
         }
+    } else {
+        error_log('HTS Dutify Sync: pa_dutify_hs_code taxonomy DOES NOT exist - Dutify may not be properly initialized');
     }
 
     // Sync Country of Origin attribute
@@ -1995,6 +2123,41 @@ function hts_sync_to_dutify($product_id)
 add_action('hts_code_imported', 'hts_sync_to_dutify');
 add_action('woocommerce_api_edit_product', 'hts_check_api_update_for_sync', 10, 2);
 add_action('woocommerce_rest_insert_product', 'hts_check_rest_api_sync', 10, 2);
+
+// AJAX handler for testing Dutify sync
+add_action('wp_ajax_test_dutify_sync', 'hts_ajax_test_dutify_sync');
+function hts_ajax_test_dutify_sync() {
+    if (!check_ajax_referer('test_dutify_sync', '_wpnonce', false)) {
+        wp_die('Security check failed');
+    }
+    
+    $product_id = intval($_POST['product_id']);
+    
+    // Enable error reporting for this request
+    error_reporting(E_ALL);
+    ini_set('display_errors', 1);
+    
+    $response = array(
+        'product_id' => $product_id,
+        'hts_code' => get_post_meta($product_id, '_hts_code', true),
+        'country' => get_post_meta($product_id, '_country_of_origin', true),
+        'dutify_class_exists' => class_exists('WOO_Dutify'),
+        'taxonomy_exists' => taxonomy_exists('pa_dutify_hs_code'),
+    );
+    
+    // Try to sync
+    if (function_exists('hts_sync_to_dutify')) {
+        $response['sync_result'] = hts_sync_to_dutify($product_id);
+    } else {
+        $response['sync_result'] = 'Function not found';
+    }
+    
+    // Check result
+    $dutify_hs = wc_get_product_terms($product_id, 'pa_dutify_hs_code', array('fields' => 'names'));
+    $response['dutify_hs_after'] = $dutify_hs ? implode(', ', $dutify_hs) : 'NOT SET';
+    
+    wp_send_json($response);
+}
 
 function hts_check_api_update_for_sync($id, $data)
 {
