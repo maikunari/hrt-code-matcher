@@ -1,9 +1,9 @@
 <?php
 
 /**
- * Plugin Name: HTS Manager for WooCommerce
+ * Plugin Name: HTS Manager for WooCommerce FF 
  * Description: Complete HTS code management - display, auto-classify, and ShipStation integration
- * Version: 3.0.0
+ * Version: 3.0.3
  * Author: Mike Sewell
  * License: GPL v2 or later
  */
