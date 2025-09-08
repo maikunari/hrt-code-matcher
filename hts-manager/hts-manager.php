@@ -2351,6 +2351,100 @@ add_action('hts_code_imported', 'hts_sync_to_dutify');
 add_action('woocommerce_api_edit_product', 'hts_check_api_update_for_sync', 10, 2);
 add_action('woocommerce_rest_insert_product', 'hts_check_rest_api_sync', 10, 2);
 
+// ===============================================
+// BULK EDIT SUPPORT FOR HTS CODES
+// ===============================================
+
+// Add fields to bulk edit form
+add_action('woocommerce_product_bulk_edit_end', 'hts_add_bulk_edit_fields');
+function hts_add_bulk_edit_fields() {
+    ?>
+    <label>
+        <span class="title"><?php _e('HTS Code', 'hts-manager'); ?></span>
+        <span class="input-text-wrap">
+            <input type="text" name="_hts_code" class="text" placeholder="<?php _e('— No change —', 'woocommerce'); ?>" value="">
+        </span>
+    </label>
+    
+    <label>
+        <span class="title"><?php _e('Country of Origin', 'hts-manager'); ?></span>
+        <span class="input-text-wrap">
+            <select name="_country_of_origin" class="select">
+                <option value=""><?php _e('— No change —', 'woocommerce'); ?></option>
+                <option value="CA"><?php _e('Canada', 'hts-manager'); ?></option>
+                <option value="US"><?php _e('United States', 'hts-manager'); ?></option>
+                <option value="MX"><?php _e('Mexico', 'hts-manager'); ?></option>
+                <option value="CN"><?php _e('China', 'hts-manager'); ?></option>
+                <option value="GB"><?php _e('United Kingdom', 'hts-manager'); ?></option>
+                <option value="DE"><?php _e('Germany', 'hts-manager'); ?></option>
+                <option value="FR"><?php _e('France', 'hts-manager'); ?></option>
+                <option value="IT"><?php _e('Italy', 'hts-manager'); ?></option>
+                <option value="JP"><?php _e('Japan', 'hts-manager'); ?></option>
+                <option value="KR"><?php _e('South Korea', 'hts-manager'); ?></option>
+                <option value="TW"><?php _e('Taiwan', 'hts-manager'); ?></option>
+                <option value="IN"><?php _e('India', 'hts-manager'); ?></option>
+                <option value="VN"><?php _e('Vietnam', 'hts-manager'); ?></option>
+                <option value="TH"><?php _e('Thailand', 'hts-manager'); ?></option>
+                <option value="OTHER"><?php _e('Other', 'hts-manager'); ?></option>
+            </select>
+        </span>
+    </label>
+    <?php
+}
+
+// Save bulk edit data
+add_action('woocommerce_product_bulk_edit_save', 'hts_save_bulk_edit_fields');
+function hts_save_bulk_edit_fields($product) {
+    // Security check - verify user can edit products
+    if (!current_user_can('edit_products')) {
+        return;
+    }
+    
+    // Validate product object
+    if (!$product || !is_a($product, 'WC_Product')) {
+        return;
+    }
+    
+    $product_id = $product->get_id();
+    if (!$product_id) {
+        return;
+    }
+    
+    $updated = false;
+    
+    // Update HTS Code if provided
+    if (isset($_REQUEST['_hts_code']) && $_REQUEST['_hts_code'] !== '') {
+        $hts_code = sanitize_text_field($_REQUEST['_hts_code']);
+        
+        // Validate HTS code format (optional - remove if you want to allow any format)
+        if (preg_match('/^\d{4}\.?\d{2}\.?\d{4}$/', str_replace(' ', '', $hts_code))) {
+            update_post_meta($product_id, '_hts_code', $hts_code);
+            update_post_meta($product_id, '_hts_updated', current_time('mysql'));
+            $updated = true;
+        }
+    }
+    
+    // Update Country of Origin if provided
+    if (isset($_REQUEST['_country_of_origin']) && $_REQUEST['_country_of_origin'] !== '') {
+        $country = sanitize_text_field($_REQUEST['_country_of_origin']);
+        
+        // Validate country code (2 letters or 'OTHER')
+        if (preg_match('/^[A-Z]{2}$/', $country) || $country === 'OTHER') {
+            update_post_meta($product_id, '_country_of_origin', $country);
+            $updated = true;
+        }
+    }
+    
+    // Sync to Dutify if any HTS data was updated
+    if ($updated && class_exists('WOO_Dutify')) {
+        try {
+            hts_sync_to_dutify($product_id);
+        } catch (Exception $e) {
+            error_log('HTS Bulk Edit: Dutify sync failed for product ' . $product_id . ': ' . $e->getMessage());
+        }
+    }
+}
+
 // AJAX handler for testing Dutify sync
 add_action('wp_ajax_test_dutify_sync', 'hts_ajax_test_dutify_sync');
 function hts_ajax_test_dutify_sync()
