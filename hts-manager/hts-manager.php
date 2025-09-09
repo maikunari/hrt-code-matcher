@@ -162,7 +162,10 @@ function hts_add_product_data_fields()
                 <label><?php _e('Confidence', 'hts-manager'); ?></label>
                 <span style="margin-left: 10px;">
                     <?php
-                    $confidence_percent = round($hts_confidence * 100);
+                    // Check if confidence is already a percentage (>1) or decimal (0-1)
+                    $confidence_percent = $hts_confidence > 1 
+                        ? round($hts_confidence) 
+                        : round($hts_confidence * 100);
                     $confidence_color = $confidence_percent >= 85
                         ? 'green'
                         : ($confidence_percent >= 60 ? 'orange' : 'red');
@@ -351,21 +354,31 @@ function hts_add_product_data_fields()
                         }
                         
                         // Add or update confidence display
-                        var confidenceColor = response.data.confidence >= 0.85 
+                        // Check if confidence is decimal (0-1) or percentage (>1)
+                        var confValue = response.data.confidence > 1 
+                            ? response.data.confidence / 100 
+                            : response.data.confidence;
+                        var confidenceColor = confValue >= 0.85 
                             ? 'green' 
-                            : (response.data.confidence >= 0.60 ? 'orange' : 'red');
+                            : (confValue >= 0.60 ? 'orange' : 'red');
                         var existingConfidence = $('.hts-confidence-display');
                         
                         if (existingConfidence.length) {
+                            var percentDisplay = response.data.confidence > 1 
+                                ? Math.round(response.data.confidence) 
+                                : Math.round(response.data.confidence * 100);
                             existingConfidence.find('span span')
                                 .css('color', confidenceColor)
-                                .text(Math.round(response.data.confidence * 100) + '%');
+                                .text(percentDisplay + '%');
                         } else if (response.data.confidence) {
+                            var percentDisplay = response.data.confidence > 1 
+                                ? Math.round(response.data.confidence) 
+                                : Math.round(response.data.confidence * 100);
                             var confidenceHtml = '<p class="form-field hts-confidence-display">' +
                                 '<label>Confidence</label>' +
                                 '<span style="margin-left: 10px;">' +
                                 '<span style="color: ' + confidenceColor + '; font-weight: bold;">' +
-                                Math.round(response.data.confidence * 100) + '%' +
+                                percentDisplay + '%' +
                                 '</span></span></p>';
                             $(confidenceHtml).insertAfter('#hts_generate_message').parent().parent();
                         }
